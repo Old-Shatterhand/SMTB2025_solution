@@ -4,7 +4,7 @@ from pathlib import Path
 import pandas as pd
 
 
-def process_fluorescence(save_path: str = None):
+def process_fluorescence(save_path: str):
     df_train = pd.read_csv("hf://datasets/proteinea/fluorescence/fluorescence_train.csv")
     df_train["split"] = "train"
     df_valid = pd.read_csv("hf://datasets/proteinea/fluorescence/fluorescence_valid.csv")

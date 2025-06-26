@@ -25,7 +25,7 @@ def run_esm(model_name: str, input_file: str, output_path: str):
         with torch.no_grad():
             outputs = model(
                 input_ids=torch.tensor(inputs["input_ids"]).reshape(1, -1).to(DEVICE),
-                attention_mask=torch.tensor(inputs["attention_mask"]).reshape(1, -1).to(DEVICE)
+                attention_mask=torch.tensor(inputs["attention_mask"]).reshape(1, -1).to(DEVICE),
                 output_attentions=False,
                 output_hidden_states=True,
             )

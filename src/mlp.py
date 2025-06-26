@@ -1,10 +1,11 @@
 import pickle
 from pathlib import Path
 
+from tqdm import tqdm
 import torch
 import pandas as pd
-from torch.utils.data import DataLoader
-from torch_metrics import MetricCollection, Accuracy, AUROC, MatthewsCorrCoef as MCC, MSE, MAE
+from torch.utils.data import DataLoader, TensorDataset
+from torchmetrics import MetricCollection, Accuracy, AUROC, MatthewsCorrCoef as MCC, MSE, MAE
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -31,13 +32,12 @@ class MLP(torch.nn.Module):
 
 def build_dataloader(df, embed_path, **dataloader_kwargs):
     embed_path = Path(embed_path)
-    labels = df['label'].values()
     embeddings = []
     for idx in df["ID"].values():
         with open(embed_path / f"{idx}.pkl", "rb") as f:
             embeddings.append(pickle.load(f))
     inputs = torch.tensor(embeddings, dtype=torch.float32).to(DEVICE)
-    targets = torch.tensor(df['target'].values, dtype=torch.long).to(DEVICE)
+    targets = torch.tensor(df['label'].values, dtype=torch.float).to(DEVICE)
     return DataLoader(TensorDataset(inputs, targets), **dataloader_kwargs)
 
 
@@ -67,12 +67,13 @@ def get_metrics(mode, num_classes=None):
         raise ValueError(f"Unknown mode: {mode}")
 
 
-def train(input_dim, hidden_dim, output_dim, mode, data_path, embeds_path, log_folder):
+def train(input_dim, hidden_dim, output_dim, mode, data_path, embeds_path, log_folder, epochs):
     model = MLP(input_dim, hidden_dim, output_dim).to(DEVICE)
     loss = get_loss(mode).to(DEVICE)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    criterion = torch.nn.MSELoss()
 
-    df = pd.read_csv()
+    df = pd.read_csv(data_path)
     train_dataloader = build_dataloader(
         df[df["split"] == "train"], embed_path=embeds_path, batch_size=32, shuffle=True
     )
@@ -85,7 +86,7 @@ def train(input_dim, hidden_dim, output_dim, mode, data_path, embeds_path, log_f
         "valid": get_metrics(mode, num_classes=output_dim if mode == "classification" else None),
     }
     
-    train_metrics_log = {"train": [], "valid": []}
+    metrics_log = {"train": [], "valid": []}
     for epoch in range(epochs):
         for inputs, targets in tqdm(train_dataloader, desc=f"Epoch {epoch+1}/{epochs} (train):"):
             outputs = model(inputs)
@@ -95,22 +96,23 @@ def train(input_dim, hidden_dim, output_dim, mode, data_path, embeds_path, log_f
             loss.backward()
             optimizer.step()
 
-            metrics.update(outputs.cpu(), targets.detach().cpu())
-        metrics_log.append(metrics["train"].compute())
+            metrics["train"].update(outputs.cpu(), targets.detach().cpu())
+        metrics_log["train"].append(metrics["train"].compute())
         metrics["train"].reset()
         
         # Validation and testing logic here
         with torch.no_grad():
             for inputs, targets in tqdm(valid_dataloader, desc=f"Epoch {epoch+1}/{epochs} (valid):"):
                 outputs = model(inputs)
-                metrics.update(outputs.cpu(), targets.cpu())
-        valid_metrics_log.append(metrics["valid"].compute())
+                metrics["valid"].update(outputs.cpu(), targets.cpu())
+        metrics_log["valid"].append(metrics["valid"].compute())
         metrics["valid"].reset()
+    
     log = Path(log_folder)
     log.mkdir(parents=True, exist_ok=True)
     model.save(log / "model.pth")
-    pd.DataFrame(train_metrics_log).to_csv(log / "train_metrics.csv", index=False)
-    pd.DataFrame(valid_metrics_log).to_csv(log / "valid_metrics.csv", index=False)
+    pd.DataFrame(metrics_log["train"]).to_csv(log / "train_metrics.csv", index=False)
+    pd.DataFrame(metrics_log["valid"]).to_csv(log / "valid_metrics.csv", index=False)
     print("Training complete. Model and metrics saved.")
 
 
@@ -126,7 +128,8 @@ if __name__ == "__main__":
     parser.add_argument("--data_path", type=str, required=True, help="Path to the data CSV file.")
     parser.add_argument("--embeds_path", type=str, required=True, help="Path to the embeddings directory.")
     parser.add_argument("--log_folder", type=str, required=True, help="Folder to save logs and model.")
+    parser.add_argument("--epochs", type=int, default=10, help="Number of training epochs.")
 
     args = parser.parse_args()
     train(args.input_dim, args.hidden_dim, args.output_dim, args.mode, args.data_path, args.embeds_path,
-          args.log_folder)
+          args.log_folder, args.epochs)
