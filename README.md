@@ -50,6 +50,12 @@ python esm.py --data-path $ROOT/datasets/fluorescence.csv --output-path $ROOT/em
 python mlp.py --input-dim 320 --hidden-dim 64 --output-dim 1 --mode regression --data-path $ROOT/datasets/fluorescence.csv --embeds-path $ROOT/embeddings/esm_t6/fluorescence/layer_0/ --log-folder ../test_logs/
 ```
 
+### Sampling the embeddings and a dataset for faster development and debugging
+
+```shell
+python sample_embeds.py --data-path $ROOT/datasets/fluorescence.csv --embed-path $ROOT/embeddings/esm_t6/fluorescence/ --save-path $ROOT/sampled/
+```
+
 ## Handling the students - Timeline
 
 Tasks to be done:

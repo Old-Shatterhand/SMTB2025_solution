@@ -11,7 +11,15 @@ from tqdm import tqdm
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-def run_esm(model_name: str, num_layers: int, data_path: str, output_path: str):
+def run_esm(model_name: str, num_layers: int, data_path: Path, output_path: Path):
+    """
+    Run ESM model to extract embeddings for sequences in the given data path.
+
+    :param model_name: Name of the ESM model to use.
+    :param num_layers: Number of layers to extract embeddings from.
+    :param data_path: Path to the CSV file containing sequences.
+    :param output_path: Path to save the extracted embeddings.
+    """
     (out := Path(output_path)).mkdir(parents=True, exist_ok=True)
     for i in range(num_layers + 1):
         (out / f"layer_{i}").mkdir(parents=True, exist_ok=True)

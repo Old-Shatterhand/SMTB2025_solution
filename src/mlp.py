@@ -1,5 +1,6 @@
 import pickle
 from pathlib import Path
+from typing import Any, Literal
 
 from tqdm import tqdm
 import torch
@@ -12,13 +13,26 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 class MLP(torch.nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim):
+    def __init__(self, input_dim: int, hidden_dim: int, output_dim: int):
+        """
+        Initialize the MLP model.
+
+        :param input_dim: Dimension of the input features.
+        :param hidden_dim: Dimension of the hidden layer.
+        :param output_dim: Dimension of the output layer.
+        """
         super(MLP, self).__init__()
         self.fc1 = torch.nn.Linear(input_dim, hidden_dim)
         self.relu = torch.nn.ReLU()
         self.fc2 = torch.nn.Linear(hidden_dim, output_dim)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass through the MLP.
+
+        :param x: Input tensor of shape (batch_size, input_dim).
+        :return: Output tensor of shape (batch_size, output_dim).
+        """
         x = self.fc1(x)
         x = self.relu(x)
         x = self.fc2(x)
@@ -31,7 +45,16 @@ class MLP(torch.nn.Module):
         self.load_state_dict(torch.load(path))
 
 
-def build_dataloader(df, embed_path, **dataloader_kwargs):
+def build_dataloader(df: pd.DataFrame, embed_path: Path, **dataloader_kwargs: Any) -> DataLoader:
+    """
+    Build a DataLoader for the given DataFrame and embedding path.
+
+    :param df: DataFrame containing the data.
+    :param embed_path: Path to the directory containing the embeddings.
+    :param dataloader_kwargs: Additional arguments for DataLoader.
+
+    :return: DataLoader for the embeddings and targets.
+    """
     embed_path = Path(embed_path)
     embeddings = []
     for idx in df["ID"].values:
@@ -42,7 +65,8 @@ def build_dataloader(df, embed_path, **dataloader_kwargs):
     return DataLoader(TensorDataset(inputs, targets), **dataloader_kwargs)
 
 
-def get_loss(mode):
+def get_loss(mode: Literal["regression", "classification", "binary"]) -> torch.nn.Module:
+    """ Get the appropriate loss function based on the mode."""
     if mode == "regression":
         return torch.nn.MSELoss()
     elif mode == "classification":
@@ -53,7 +77,8 @@ def get_loss(mode):
         raise ValueError(f"Unknown mode: {mode}")
 
 
-def get_metrics(mode, num_classes=None):
+def get_metrics(mode: Literal["regression", "classification", "binary"], num_classes: int | None = None) -> MetricCollection:
+    """ Get the appropriate metrics based on the mode."""
     if mode == "regression":
         return MetricCollection([MSE(), MAE()])
     elif mode == "classification":
@@ -68,7 +93,8 @@ def get_metrics(mode, num_classes=None):
         raise ValueError(f"Unknown mode: {mode}")
 
 
-def reshape_predictions(predictions, targets, mode):
+def reshape_predictions(predictions: torch.Tensor, targets: torch.Tensor, mode: Literal["regression", "classification", "binary"]) -> torch.Tensor:
+    """ Reshape predictions based on the mode."""
     if mode == "regression":
         return predictions.reshape(targets.shape)
     elif mode == "classification":  # ??
@@ -79,7 +105,28 @@ def reshape_predictions(predictions, targets, mode):
         raise ValueError(f"Unknown mode: {mode}")
 
 
-def train(input_dim, hidden_dim, output_dim, mode, data_path, embeds_path, log_folder, epochs):
+def train(
+        input_dim: int, 
+        hidden_dim: int, 
+        output_dim: int, 
+        mode: Literal["regression", "classification", "binary"], 
+        data_path: Path, 
+        embeds_path: Path, 
+        log_folder: Path, 
+        epochs: int,
+):
+    """
+    Train a Multi-Layer Perceptron (MLP) model.
+
+    :param input_dim: Dimension of the input features.
+    :param hidden_dim: Dimension of the hidden layer.
+    :param output_dim: Dimension of the output layer.
+    :param mode: Mode of the model, can be "regression", "classification", or "binary".
+    :param data_path: Path to the CSV file containing the dataset.
+    :param embeds_path: Path to the directory containing the embeddings.
+    :param log_folder: Folder to save logs and model.
+    :param epochs: Number of training epochs.
+    """
     model = MLP(input_dim, hidden_dim, output_dim).to(DEVICE)
     loss = get_loss(mode).to(DEVICE)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
