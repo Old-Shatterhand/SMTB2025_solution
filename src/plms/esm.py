@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from argparse import ArgumentParser
 import pickle
@@ -10,15 +11,15 @@ from tqdm import tqdm
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-def run_esm(model_name: str, input_file: str, output_path: str):
+def run_esm(model_name: str, num_layers: int, data_path: str, output_path: str):
     (out := Path(output_path)).mkdir(parents=True, exist_ok=True)
-    for i in range(6):
+    for i in range(num_layers + 1):
         (out / f"layer_{i}").mkdir(parents=True, exist_ok=True)
 
-    data = pd.read_csv(input_file)
+    data = pd.read_csv(data_path)
 
-    model = AutoModel.from_pretrained(model_name)
-    tokenizer = AutoTokenizer.from_pretrained(model_name).to(DEVICE)
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModel.from_pretrained(model_name).to(DEVICE).eval()
 
     for idx, seq in tqdm(data[["ID", "sequence"]].values):
         inputs = tokenizer(seq)
@@ -31,15 +32,56 @@ def run_esm(model_name: str, input_file: str, output_path: str):
             )
         for i, layer in enumerate(outputs.hidden_states):
             with open(out / f"layer_{i}" / f"{idx}.pkl", "wb") as f:
-                pickle.dump(f, layer[:, 1: -1].cpu().numpy())
+                pickle.dump(layer[0, 1: -1].cpu().numpy().mean(axis=0), f)
     print(f"Embedded all sequences with {model_name}")
+
+
+def run_esm_batched(model_name: str, num_layers: int, data_path: str, output_path: str, batch_size: int = 16):
+    """Not in use, but kept for reference."""
+    out = Path(output_path)
+    out.mkdir(parents=True, exist_ok=True)
+    for i in range(num_layers + 1):
+        (out / f"layer_{i}").mkdir(parents=True, exist_ok=True)
+
+    df = pd.read_csv(data_path)
+    ids = df["ID"].tolist()
+    sequences = df["sequence"].tolist()
+
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModel.from_pretrained(model_name).to(DEVICE).eval()
+
+    for start in tqdm(range(0, len(sequences), batch_size), desc="Embedding batches"):
+        end = start + batch_size
+        batch_ids = ids[start:end]
+        batch_seqs = sequences[start:end]
+
+        batch_tokens = tokenizer(batch_seqs, return_tensors="pt", padding=True, truncation=True)
+        input_ids = batch_tokens["input_ids"].to(DEVICE)
+        attention_mask = batch_tokens["attention_mask"].to(DEVICE)
+
+        with torch.no_grad():
+            outputs = model(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                output_hidden_states=True,
+                output_attentions=False,
+            )
+
+        hidden_states = outputs.hidden_states  # tuple of (num_layers + 1) tensors
+
+        for b_idx, sample_id in enumerate(batch_ids):
+            trimmed = [layer[b_idx, 1:-1].cpu().numpy() for layer in hidden_states]
+            for i, layer in enumerate(trimmed):
+                with open(out / f"layer_{i}" / f"{sample_id}.pkl", "wb") as f:
+                    pickle.dump(layer, f)
 
 
 if __name__ == "__main__":
     parser = ArgumentParser()
-    parser.add_argument("--model_name", type=str, default="facebook/esm2_t6_8M_UR50D")
-    parser.add_argument("--input_file", type=str, required=True)
-    parser.add_argument("--output_path", type=str, default="data/esm_embeddings")
+    parser.add_argument("--model-name", type=str, default="facebook/esm2_t6_8M_UR50D")
+    parser.add_argument("--num-layers", type=int, default=7, help="Number of layers to extract embeddings from")
+    parser.add_argument("--data-path", type=str, required=True)
+    parser.add_argument("--output-path", type=str, default="data/esm_embeddings")
     args = parser.parse_args()
 
-    run_esm(args.model_name, args.input_file, args.output_path)
+    run_esm(args.model_name, args.num_layers, args.data_path, args.output_path)
