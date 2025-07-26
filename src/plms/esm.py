@@ -11,7 +11,7 @@ from tqdm import tqdm
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-def run_esm(model_name: str, num_layers: int, data_path: Path, output_path: Path):
+def run_esm(model_name: str, data_path: Path, output_path: Path):
     """
     Run ESM model to extract embeddings for sequences in the given data path.
 
@@ -20,6 +20,7 @@ def run_esm(model_name: str, num_layers: int, data_path: Path, output_path: Path
     :param data_path: Path to the CSV file containing sequences.
     :param output_path: Path to save the extracted embeddings.
     """
+    num_layers = int(model_name.split("_")[1][1:])
     (out := Path(output_path)).mkdir(parents=True, exist_ok=True)
     for i in range(num_layers + 1):
         (out / f"layer_{i}").mkdir(parents=True, exist_ok=True)
@@ -87,9 +88,8 @@ def run_esm_batched(model_name: str, num_layers: int, data_path: str, output_pat
 if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument("--model-name", type=str, default="facebook/esm2_t6_8M_UR50D")
-    parser.add_argument("--num-layers", type=int, default=7, help="Number of layers to extract embeddings from")
     parser.add_argument("--data-path", type=str, required=True)
     parser.add_argument("--output-path", type=str, default="data/esm_embeddings")
     args = parser.parse_args()
 
-    run_esm(args.model_name, args.num_layers, args.data_path, args.output_path)
+    run_esm(args.model_name, args.data_path, args.output_path)
