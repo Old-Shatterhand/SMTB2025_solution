@@ -16,9 +16,10 @@ def process_fluorescence(save_path: Path):
     df = pd.concat([df_train, df_valid, df_test])[["primary", "log_fluorescence", "split"]]
     df.rename(columns={"primary": "sequence", "log_fluorescence": "label"}, inplace=True)
     df["ID"] = [f"P{idx:05d}" for idx in range(len(df))]
-    (p := Path(save_path)).mkdir(parents=True, exist_ok=True)
     df["sequence"] = df["sequence"].apply(lambda x: "M" + x)
-    df[["ID", "sequence", "label", "split"]].to_csv(p / "fluorescence.csv", index=False)
+    
+    save_path.mkdir(parents=True, exist_ok=True)
+    df[["ID", "sequence", "label", "split"]].to_csv(save_path / "fluorescence.csv", index=False)
     print(f"Fluorescence dataset saved to {save_path}/fluorescence.csv")
 
 

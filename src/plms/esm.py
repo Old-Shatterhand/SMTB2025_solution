@@ -60,7 +60,7 @@ def run_ankh(model_name: str, data_path: Path, output_path: Path):
             embeddings = model(tokens, output_hidden_states=True)
 
         for i in range(0, num_layers + 1):
-            with open(out / f"{idx}.pkl", "wb") as f:
+            with open(out / f"layer_{i}" / f"{idx}.pkl", "wb") as f:
                 pickle.dump(embeddings.hidden_states[i][0, 1:].mean(axis=0), f)
 
 
@@ -106,9 +106,9 @@ def run_esm_batched(model_name: str, num_layers: int, data_path: str, output_pat
 
 if __name__ == "__main__":
     parser = ArgumentParser()
-    parser.add_argument("--model-name", type=str, default="facebook/esm2_t6_8M_UR50D")
+    parser.add_argument("--model-name", type=str, required=True)
     parser.add_argument("--data-path", type=str, required=True)
-    parser.add_argument("--output-path", type=str, default="data/esm_embeddings")
+    parser.add_argument("--output-path", type=str, required=True)
     args = parser.parse_args()
 
     if "ankh" in args.model_name:

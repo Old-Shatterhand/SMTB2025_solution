@@ -69,11 +69,11 @@ if args.function == "lr":
     reg = LinearRegression().fit(train_X, train_Y)
 elif args.function == "xgb":
     reg = XGBRegressor(
-        tree_method="gpu_hist" if device == "cuda" else "hist",
-        n_estimators=100, 
-        max_depth=20, 
-        random_state=42, 
-        device=device
+        tree_method="hist",
+        n_estimators=50,
+        max_depth=20,
+        random_state=42,
+        device="cpu"
     ).fit(train_X, train_Y)
 
 print("Evaluating model")
