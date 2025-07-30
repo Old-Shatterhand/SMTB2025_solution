@@ -9,6 +9,15 @@ from tqdm import tqdm
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+PLM_MODELS = {
+    "esm_t6": "facebook/esm2_t6_8M_UR50D",
+    "esm_t12": "facebook/esm2_t12_35M_UR50D",
+    "esm_t30": "facebook/esm2_t30_150M_UR50D",
+    "esm_t33": "facebook/esm2_t33_650M_UR50D",
+    "ankh-base": "ElnaggarLab/ankh-base",
+    "ankh-large": "ElnaggarLab/ankh-large",
+}
+
 
 def run_esm(model_name: str, data_path: Path, output_path: Path):
     """
@@ -61,7 +70,7 @@ def run_ankh(model_name: str, data_path: Path, output_path: Path):
 
         for i in range(0, num_layers + 1):
             with open(out / f"layer_{i}" / f"{idx}.pkl", "wb") as f:
-                pickle.dump(embeddings.hidden_states[i][0, 1:].mean(axis=0), f)
+                pickle.dump(embeddings.hidden_states[i][0, 1:].cpu().numpy().mean(axis=0), f)
 
 
 def run_esm_batched(model_name: str, num_layers: int, data_path: str, output_path: str, batch_size: int = 16):
@@ -112,6 +121,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if "ankh" in args.model_name:
-        run_ankh(args.model_name, args.data_path, args.output_path)
+        run_ankh(PLM_MODELS[args.model_name], args.data_path, args.output_path)
     else:
-        run_esm(args.model_name, args.data_path, args.output_path)
+        run_esm(PLM_MODELS[args.model_name], args.data_path, args.output_path)

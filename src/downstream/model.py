@@ -27,7 +27,7 @@ def build_dataloader(df: pd.DataFrame, embed_path: Path):
     embeddings = []
     for idx in df["ID"].values:
         with open(embed_path / f"{idx}.pkl", "rb") as f:
-            embeddings.append(pickle.load(f))
+            embeddings.append(pickle.load(f).cpu().numpy())
     inputs = np.stack(embeddings)
     targets = np.array(df['label'].values).astype(np.float32)
     return inputs, targets

@@ -13,15 +13,16 @@ def process_deeploc_data(save_path: Path):
 
     df = pd.concat([df_train, df_valid, df_test], ignore_index=True)
     df["ID"] = [f"P{i:05d}" for i in range(len(df))]
+    df.rename(columns={"Sequence": "sequence"}, inplace=True)
 
     save_path.mkdir(parents=True, exist_ok=True)
-    df.to_csv(save_path / 'deeploc2_data.csv', index=False)
-    print("DeepLoc2 10-class dataset saved to", save_path / 'deeploc2_data.csv')
+    df.to_csv(save_path / 'deeploc2.csv', index=False)
+    print("DeepLoc2 10-class dataset saved to", save_path / 'deeploc2.csv')
 
-    df = df[["Sequence", "Membrane", "split", "ID"]]
+    df = df[["sequence", "Membrane", "split", "ID"]]
     df.rename(columns={"Membrane": "label"}, inplace=True)
-    df.to_csv(save_path / 'deeploc2_bin_data.csv', index=False)
-    print("DeepLoc2 binary dataset saved to", save_path / 'deeploc2_bin_data.csv')
+    df.to_csv(save_path / 'deeploc2_bin.csv', index=False)
+    print("DeepLoc2 binary dataset saved to", save_path / 'deeploc2_bin.csv')
 
 
 if __name__ == "__main__":
