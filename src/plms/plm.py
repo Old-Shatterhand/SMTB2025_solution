@@ -28,9 +28,8 @@ def run_esm(model_name: str, data_path: Path, output_path: Path):
     :param data_path: Path to the CSV file containing sequences.
     :param output_path: Path to save the extracted embeddings.
     """
-    num_layers = int(model_name.split("_")[1][1:])
     (out := Path(output_path)).mkdir(parents=True, exist_ok=True)
-    for i in range(num_layers + 1):
+    for i in range(int(model_name.split("_")[1][1:]) + 1):
         (out / f"layer_{i}").mkdir(parents=True, exist_ok=True)
 
     data = pd.read_csv(data_path)
@@ -39,7 +38,9 @@ def run_esm(model_name: str, data_path: Path, output_path: Path):
     model = AutoModel.from_pretrained(model_name).to(DEVICE).eval()
 
     for idx, seq in tqdm(data[["ID", "sequence"]].values):
-        inputs = tokenizer(seq)
+        if (out / "layer_0" / f"{idx}.pkl").exists():
+            continue
+        inputs = tokenizer(seq[:1022])
         with torch.no_grad():
             outputs = model(
                 input_ids=torch.tensor(inputs["input_ids"]).reshape(1, -1).to(DEVICE),
@@ -47,9 +48,11 @@ def run_esm(model_name: str, data_path: Path, output_path: Path):
                 output_attentions=False,
                 output_hidden_states=True,
             )
+            del inputs
         for i, layer in enumerate(outputs.hidden_states):
             with open(out / f"layer_{i}" / f"{idx}.pkl", "wb") as f:
                 pickle.dump(layer[0, 1: -1].cpu().numpy().mean(axis=0), f)
+        del outputs
     print(f"Embedded all sequences with {model_name}")
 
 
@@ -64,13 +67,17 @@ def run_ankh(model_name: str, data_path: Path, output_path: Path):
     model = T5EncoderModel.from_pretrained(model_name).to(DEVICE).eval()
 
     for idx, seq in tqdm(data[["ID", "sequence"]].values):
-        tokens = tokenizer.encode(seq, return_tensors="pt").to(DEVICE)
+        if (out / "layer_0" / f"{idx}.pkl").exists():
+            continue
+        tokens = tokenizer.encode(seq[:1022], return_tensors="pt").to(DEVICE)
         with torch.no_grad():
             embeddings = model(tokens, output_hidden_states=True)
+            del tokens
 
         for i in range(0, num_layers + 1):
             with open(out / f"layer_{i}" / f"{idx}.pkl", "wb") as f:
                 pickle.dump(embeddings.hidden_states[i][0, 1:].cpu().numpy().mean(axis=0), f)
+        del embeddings
 
 
 def run_esm_batched(model_name: str, num_layers: int, data_path: str, output_path: str, batch_size: int = 16):
