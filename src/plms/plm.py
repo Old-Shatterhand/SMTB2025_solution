@@ -2,12 +2,18 @@ from pathlib import Path
 from argparse import ArgumentParser
 import pickle
 
+import numpy as np
 from transformers import AutoModel, AutoTokenizer, T5EncoderModel
 import torch
 import pandas as pd
 from tqdm import tqdm
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+AA_OHE = {
+    "A": 0, "C": 1, "D": 2, "E": 3, "F": 4, "G": 5, "H": 6, "I": 7,
+    "K": 8, "L": 9, "M": 10, "N": 11, "P": 12, "Q": 13, "R": 14,
+    "S": 15, "T": 16, "V": 17, "W": 18, "Y": 19
+}
 
 PLM_MODELS = {
     "esm_t6": "facebook/esm2_t6_8M_UR50D",
@@ -59,15 +65,15 @@ def run_esm(model_name: str, data_path: Path, output_path: Path):
 def run_ankh(model_name: str, data_path: Path, output_path: Path):
     data = pd.read_csv(data_path)
     num_layers = 48
-    (out := Path(output_path)).mkdir(parents=True, exist_ok=True)
+    output_path.mkdir(parents=True, exist_ok=True)
     for i in range(num_layers + 1):
-        (out / f"layer_{i}").mkdir(parents=True, exist_ok=True)
+        (output_path / f"layer_{i}").mkdir(parents=True, exist_ok=True)
 
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = T5EncoderModel.from_pretrained(model_name).to(DEVICE).eval()
 
     for idx, seq in tqdm(data[["ID", "sequence"]].values):
-        if (out / "layer_0" / f"{idx}.pkl").exists():
+        if (output_path / "layer_0" / f"{idx}.pkl").exists():
             continue
         tokens = tokenizer.encode(seq[:1022], return_tensors="pt").to(DEVICE)
         with torch.no_grad():
@@ -75,9 +81,29 @@ def run_ankh(model_name: str, data_path: Path, output_path: Path):
             del tokens
 
         for i in range(0, num_layers + 1):
-            with open(out / f"layer_{i}" / f"{idx}.pkl", "wb") as f:
+            with open(output_path / f"layer_{i}" / f"{idx}.pkl", "wb") as f:
                 pickle.dump(embeddings.hidden_states[i][0, 1:].cpu().numpy().mean(axis=0), f)
         del embeddings
+
+
+def run_ohe(data_path: Path, output_path: Path):
+    """
+    One-hot encode sequences and save them to the output path.
+    """
+    (out := (output_path / "layer_0")).mkdir(parents=True, exist_ok=True)
+
+    data = pd.read_csv(data_path)
+    sequences = data["sequence"].tolist()
+    ids = data["ID"].tolist()
+
+    for idx, seq in tqdm(zip(ids, sequences), total=len(sequences)):
+        one_hot = np.zeros((len(seq), 21), dtype=np.float32)
+        for i, aa in enumerate(seq[:1022]):
+            if aa == "-":
+                continue
+            one_hot[i, AA_OHE.get(aa, 20)] = 1
+        with open(out / f"{idx}.pkl", "wb") as f:
+            pickle.dump(one_hot.mean(axis=0), f)
 
 
 def run_esm_batched(model_name: str, num_layers: int, data_path: str, output_path: str, batch_size: int = 16):
@@ -123,11 +149,15 @@ def run_esm_batched(model_name: str, num_layers: int, data_path: str, output_pat
 if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument("--model-name", type=str, required=True)
-    parser.add_argument("--data-path", type=str, required=True)
-    parser.add_argument("--output-path", type=str, required=True)
+    parser.add_argument("--data-path", type=Path, required=True)
+    parser.add_argument("--output-path", type=Path, required=True)
     args = parser.parse_args()
 
     if "ankh" in args.model_name:
         run_ankh(PLM_MODELS[args.model_name], args.data_path, args.output_path)
-    else:
+    elif "esm" in args.model_name:
         run_esm(PLM_MODELS[args.model_name], args.data_path, args.output_path)
+    elif "ohe" in args.model_name:
+        run_ohe(args.data_path, args.output_path)
+    else:
+        raise ValueError(f"Unknown model name: {args.model_name}. Supported models are: {list(PLM_MODELS.keys())} or 'ohe'.")
