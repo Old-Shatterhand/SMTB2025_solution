@@ -1,12 +1,15 @@
+import re
+import pickle
 from pathlib import Path
 from argparse import ArgumentParser
-import pickle
 
-import numpy as np
-from transformers import AutoModel, AutoTokenizer, T5EncoderModel
 import torch
+import numpy as np
 import pandas as pd
 from tqdm import tqdm
+from esm.models.esmc import ESMC
+from esm.sdk.api import ESMProtein, LogitsConfig
+from transformers import AutoModel, AutoModelForSeq2SeqLM, AutoTokenizer, BertTokenizer, T5EncoderModel, T5Model, T5Tokenizer
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 AA_OHE = {
@@ -20,6 +23,7 @@ PLM_MODELS = {
     "esm_t12": "facebook/esm2_t12_35M_UR50D",
     "esm_t30": "facebook/esm2_t30_150M_UR50D",
     "esm_t33": "facebook/esm2_t33_650M_UR50D",
+    "esm_t36": "facebook/esm2_t36_3B_UR50D",
     "ankh-base": "ElnaggarLab/ankh-base",
     "ankh-large": "ElnaggarLab/ankh-large",
 }
@@ -34,9 +38,8 @@ def run_esm(model_name: str, data_path: Path, output_path: Path):
     :param data_path: Path to the CSV file containing sequences.
     :param output_path: Path to save the extracted embeddings.
     """
-    (out := Path(output_path)).mkdir(parents=True, exist_ok=True)
     for i in range(int(model_name.split("_")[1][1:]) + 1):
-        (out / f"layer_{i}").mkdir(parents=True, exist_ok=True)
+        (output_path / f"layer_{i}").mkdir(parents=True, exist_ok=True)
 
     data = pd.read_csv(data_path)
 
@@ -44,7 +47,7 @@ def run_esm(model_name: str, data_path: Path, output_path: Path):
     model = AutoModel.from_pretrained(model_name).to(DEVICE).eval()
 
     for idx, seq in tqdm(data[["ID", "sequence"]].values):
-        if (out / "layer_0" / f"{idx}.pkl").exists():
+        if (output_path / "layer_0" / f"{idx}.pkl").exists():
             continue
         inputs = tokenizer(seq[:1022])
         with torch.no_grad():
@@ -56,16 +59,40 @@ def run_esm(model_name: str, data_path: Path, output_path: Path):
             )
             del inputs
         for i, layer in enumerate(outputs.hidden_states):
-            with open(out / f"layer_{i}" / f"{idx}.pkl", "wb") as f:
+            with open(output_path / f"layer_{i}" / f"{idx}.pkl", "wb") as f:
                 pickle.dump(layer[0, 1: -1].cpu().numpy().mean(axis=0), f)
         del outputs
+    print(f"Embedded all sequences with {model_name}")
+
+
+def run_esmc(model_name: str, data_path: Path, output_path: Path):
+    data = pd.read_csv(data_path)
+    num_layers = 30 if "300m" in model_name else 36
+    for i in range(num_layers + 1):
+        (output_path / f"layer_{i}").mkdir(parents=True, exist_ok=True)
+
+    model = ESMC.from_pretrained(model_name).to(DEVICE).eval()
+
+    for idx, seq in tqdm(data[["ID", "sequence"]].values):
+        if (output_path / "layer_0" / f"{idx}.pkl").exists():
+            continue
+        with torch.no_grad():
+            logits_output = model.logits(
+                model.encode(ESMProtein(sequence=seq[:1022])),
+                LogitsConfig(sequence=True, return_embeddings=True, return_hidden_states=True)
+            )
+        for i in range(0, num_layers):
+            with open(output_path / f"layer_{i}" / f"{idx}.pkl", "wb") as f:
+                pickle.dump(logits_output.hidden_states[i, 0, 1:-1].cpu().float().numpy().mean(axis=0), f)
+        with open(output_path / f"layer_{num_layers}" / f"{idx}.pkl", "wb") as f:
+            pickle.dump(logits_output.embeddings[0, 1:-1].cpu().float().numpy().mean(axis=0), f)
+        del logits_output
     print(f"Embedded all sequences with {model_name}")
 
 
 def run_ankh(model_name: str, data_path: Path, output_path: Path):
     data = pd.read_csv(data_path)
     num_layers = 48
-    output_path.mkdir(parents=True, exist_ok=True)
     for i in range(num_layers + 1):
         (output_path / f"layer_{i}").mkdir(parents=True, exist_ok=True)
 
@@ -84,6 +111,56 @@ def run_ankh(model_name: str, data_path: Path, output_path: Path):
             with open(output_path / f"layer_{i}" / f"{idx}.pkl", "wb") as f:
                 pickle.dump(embeddings.hidden_states[i][0, 1:].cpu().numpy().mean(axis=0), f)
         del embeddings
+
+
+def run_prostt5(data_path: Path, output_path: Path):
+    data = pd.read_csv(data_path)
+    num_layers = 24
+    for i in range(num_layers + 1):
+        (output_path / f"layer_{i}").mkdir(parents=True, exist_ok=True)
+    
+    tokenizer = T5Tokenizer.from_pretrained("Rostlab/ProstT5")
+    model = T5Model.from_pretrained("Rostlab/ProstT5").to(DEVICE).eval()
+
+    for idx, seq in tqdm(data[["ID", "sequence"]].values):
+        if (output_path / "layer_0" / f"{idx}.pkl").exists():
+            continue
+        seq = "<AA2fold>" + " " + " ".join([aa.upper() for aa in re.sub(r"[UZOB]", "X", seq[:1022])])
+        tokens = tokenizer.batch_encode_plus([seq], add_special_tokens=True, padding="longest", return_tensors='pt').to(DEVICE)
+
+        with torch.no_grad():
+            embeddings = model.encoder(tokens.input_ids, attention_mask=tokens.attention_mask, output_attentions=False, output_hidden_states=True)
+            del tokens
+
+        for i in range(0, num_layers + 1):
+            with open(output_path / f"layer_{i}" / f"{idx}.pkl", "wb") as f:
+                pickle.dump(embeddings.hidden_states[i][0, 1:-1].cpu().numpy().mean(axis=0), f)
+        del embeddings
+
+
+def run_prott5(data_path: Path, output_path: Path):
+    data = pd.read_csv(data_path)
+    num_layers = 24
+    for i in range(num_layers + 1):
+        (output_path / f"layer_{i}").mkdir(parents=True, exist_ok=True)
+
+    tokenizer = T5Tokenizer.from_pretrained("Rostlab/prot_t5_xl_uniref50")
+    model = T5Model.from_pretrained("Rostlab/prot_t5_xl_uniref50").to(DEVICE).eval()
+
+    for idx, seq in tqdm(data[["ID", "sequence"]].values):
+        if (output_path / "layer_0" / f"{idx}.pkl").exists():
+            continue
+        seq = " ".join(list(re.sub(r"[UZOB]", "X", seq[:1022])))
+        tokens = tokenizer.batch_encode_plus([seq], add_special_tokens=True, padding="longest", return_tensors="pt").to(DEVICE)
+
+        with torch.no_grad():
+            embedding_repr = model.encoder(tokens.input_ids, attention_mask=tokens.attention_mask, output_attentions=False, output_hidden_states=True)
+            del tokens
+
+        for i in range(0, num_layers + 1):
+            with open(output_path / f"layer_{i}" / f"{idx}.pkl", "wb") as f:
+                pickle.dump(embedding_repr.hidden_states[i][0, 1:-1].cpu().numpy().mean(axis=0), f)
+        del embedding_repr
 
 
 def run_ohe(data_path: Path, output_path: Path):
@@ -153,10 +230,16 @@ if __name__ == "__main__":
     parser.add_argument("--output-path", type=Path, required=True)
     args = parser.parse_args()
 
-    if "ankh" in args.model_name:
-        run_ankh(PLM_MODELS[args.model_name], args.data_path, args.output_path)
+    if "esmc" in args.model_name:
+        run_esmc(args.model_name, args.data_path, args.output_path)
     elif "esm" in args.model_name:
         run_esm(PLM_MODELS[args.model_name], args.data_path, args.output_path)
+    elif "ankh" in args.model_name:
+        run_ankh(PLM_MODELS[args.model_name], args.data_path, args.output_path)
+    elif "prott5" in args.model_name:
+        run_prott5(args.data_path, args.output_path)
+    elif "prostt5" in args.model_name:
+        run_prostt5(args.data_path, args.output_path)
     elif "ohe" in args.model_name:
         run_ohe(args.data_path, args.output_path)
     else:

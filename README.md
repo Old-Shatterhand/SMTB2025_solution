@@ -1,5 +1,6 @@
 # Repository with Solutions for  SMTB 2025
 
+
 **_DISCLAIMER:_** This repository contains solution scripts and notes for the SMTB 2025 competition and is **NOT** to be shared with the students. This is also not **THE** one solution, I want to import on the students, but rather a lookup for use to see how to approach the task in case the students struggle with it to provide them with a hint to a potential solution.
 
 ## Folder structure

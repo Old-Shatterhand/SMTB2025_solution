@@ -34,6 +34,7 @@ def build_dataloader(df: pd.DataFrame, embed_path: Path, labels: str | list[str]
             valid_ids.add(idx)
         except Exception:
             pass
+    
     inputs = np.stack(embeddings)
     targets = np.array(df[df["ID"].isin(valid_ids)][labels].values).astype(np.float32)
 
@@ -96,3 +97,49 @@ def fit_model(task, algo, trainX, trainY, binary: bool = False) -> sklearn.base.
         elif algo == "knn":
             return KNeighborsRegressor(n_neighbors=5, weights="distance", algorithm="brute", metric="cosine").fit(trainX, trainY)
     raise ValueError(f"Unknown task: {task} or algorithm: {algo}")
+
+
+def twonn_dimension(data: np.ndarray):
+    """
+    Calculates intrinsic dimension of the provided data points with the TWO-NN algorithm.
+    
+    Parameters:
+        data: 2d data matrix. Samples on rows and features on columns.
+    Returns:
+        Intrinsic dimension of the dataset according to TWO-NN.
+    """
+    N = len(data)
+    
+    #mu = r2/r1 for each data point
+    mu = []
+    for i,x in enumerate(data):
+        
+        dist = np.sort(np.sqrt(np.sum((x-data)**2, axis=1)))
+        r1, r2 = dist[dist > 0][:2]
+
+        mu.append((i + 1, r2 / r1))
+
+    #permutation function
+    sigma_i = dict(zip(range(1, len(mu) + 1), np.array(sorted(mu, key=lambda x: x[1]))[:, 0].astype(int)))
+
+    mu = dict(mu)
+
+    #cdf F(mu_{sigma(i)})
+    F_i = {}
+    for i in mu:
+        F_i[sigma_i[i]] = i / N
+
+    #fitting coordinates
+    x = np.log([mu[i] for i in sorted(mu.keys())])
+    y = np.array([1-F_i[i] for i in sorted(mu.keys())])
+
+    #avoid having log(0)
+    x = x[y > 0]
+    y = y[y > 0]
+
+    y = -1*np.log(y)
+
+    #fit line through origin to get the dimension
+    d = np.linalg.lstsq(np.vstack([x, np.zeros(len(x))]).T, y, rcond=None)[0][0]
+        
+    return d
