@@ -27,15 +27,14 @@ dataset = args.data_path.stem
 model_name = args.embed_path.parent.parent.name
 result_folder = args.embed_path.parent.parent / dataset / f"layer_{layer}"
 if not MODE_ID:
-    result_file = result_folder / f"metrics_{args.function}_{args.seed}.csv"
+    result_file = result_folder / f"predictions_{args.function}_{args.seed}.pkl"
 else:
     result_file = result_folder / f"ids.csv"
 
 if result_file.exists():
     print("result already exists.")
     exit(0)
-if not result_folder.exists():
-    result_folder.mkdir(parents=True, exist_ok=True)
+result_folder.mkdir(parents=True, exist_ok=True)
 
 start = time()
 # DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -52,7 +51,11 @@ print("Loading embeddings from", args.embed_path)
 labels = "label"
 if dataset == "deeploc2":
     labels = ["Membrane", "Cytoplasm", "Nucleus", "Extracellular", "Cell membrane", "Mitochondrion", "Plastid", "Endoplasmic reticulum", "Lysosome/Vacuole", "Golgi apparatus", "Peroxisome"]
-train_X, train_Y = build_dataloader(df[df["split"] == "train"], args.embed_path, labels)
+
+if "train" in df.columns:
+    train_X, train_Y = build_dataloader(df[df["split"] == "train"], args.embed_path, labels)
+else:
+    train_X, train_Y = build_dataloader(df, args.embed_path, labels)
 
 if not MODE_ID:
     valid_X, valid_Y = build_dataloader(df[df["split"] == "valid"], args.embed_path, labels)
@@ -66,7 +69,7 @@ if not MODE_ID:
     valid_prediction = model.predict(valid_X)
     test_prediction = model.predict(test_X)
 
-    with open(result_folder / f"predictions_{args.function}_{args.seed}.pkl", "wb") as f:
+    with open(result_file, "wb") as f:
         pickle.dump(((train_prediction, train_Y), (valid_prediction, valid_Y), (test_prediction, test_Y)), f)
 else:
     twonn_id = twonn_dimension(train_X)

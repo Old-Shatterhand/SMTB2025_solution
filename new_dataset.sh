@@ -1,13 +1,13 @@
 ROOT="/scratch/SCRATCH_SAS/roman/SMTB"
-NCORES=16
-DATASET=esol
+NCORES=64
+DATASET=scope_40_208
 
 # Preprocess dataset
-python -m src.datasets.$DATASET --save-path $ROOT/datasets/
+# python -m src.datasets.$DATASET --save-path $ROOT/datasets/
 
 # Embed sequences (not to be paralellized to not exceed GPU RAM)
-for model in esm_t6 esm_t12 esm_t30 esm_t33 esm_t36 esmc-300m esmc-600m ankh-base ankh-large prostt5 prostt5 ohe; do
-    python -m src.plms.plm --model-name $model --data-path $ROOT/datasets/$DATASET.csv --output-path $ROOT/embeddings/$model/$DATASET
+for model in esm_t6 esm_t12 esm_t30 esm_t33 esm_t36 esmc-300m esmc-600m ankh-base ankh-large; do  # prostt5 prostt5 ohe; do
+    python -m src.plm --model-name $model --data-path $ROOT/datasets/$DATASET.csv --output-path $ROOT/embeddings/$model/$DATASET
 done
 
 # Train on ESM2 model embeddings
@@ -41,15 +41,15 @@ for model in base large; do
 done | xargs -P $NCORES -I {} bash -c "{}"
 
 # Train on Pro(s)tT5 model embeddings
-for model in prostt5 prott5; do
-    for l in $(seq 0 24); do
-        for algo in lr knn 2nn; do
-            echo "python -m src.downstream.model --data-path $ROOT/datasets/$DATASET.csv --embed-path $ROOT/embeddings/$model/$DATASET/layer_$l/ --function $algo --task regression"
-        done
-    done
-done | xargs -P $NCORES -I {} bash -c "{}"
+# for model in prostt5 prott5; do
+#     for l in $(seq 0 24); do
+#         for algo in lr knn 2nn; do
+#             echo "python -m src.downstream.model --data-path $ROOT/datasets/$DATASET.csv --embed-path $ROOT/embeddings/$model/$DATASET/layer_$l/ --function $algo --task regression"
+#         done
+#     done
+# done | xargs -P $NCORES -I {} bash -c "{}"
 
-# Train on one-hot encodings
-for algo in lr knn 2nn; do
-    python -m src.downstream.model --data-path $ROOT/datasets/$DATASET.csv --embed-path $ROOT/embeddings/ohe/$DATASET/layer_0/ --function $algo --task regression
-done
+# # Train on one-hot encodings
+# for algo in lr knn 2nn; do
+#     python -m src.downstream.model --data-path $ROOT/datasets/$DATASET.csv --embed-path $ROOT/embeddings/ohe/$DATASET/layer_0/ --function $algo --task regression
+# done

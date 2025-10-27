@@ -9,7 +9,7 @@ import pandas as pd
 from tqdm import tqdm
 from esm.models.esmc import ESMC
 from esm.sdk.api import ESMProtein, LogitsConfig
-from transformers import AutoModel, AutoModelForSeq2SeqLM, AutoTokenizer, BertTokenizer, T5EncoderModel, T5Model, T5Tokenizer
+from transformers import AutoModel, AutoTokenizer, T5EncoderModel, T5Model, T5Tokenizer
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 AA_OHE = {
@@ -150,7 +150,7 @@ def run_prott5(data_path: Path, output_path: Path):
     for idx, seq in tqdm(data[["ID", "sequence"]].values):
         if (output_path / "layer_0" / f"{idx}.pkl").exists():
             continue
-        seq = " ".join(list(re.sub(r"[UZOB]", "X", seq[:1022])))
+        seq = " ".join(list(re.sub(r"[UZOB]", "X", seq[:1022].upper())))
         tokens = tokenizer.batch_encode_plus([seq], add_special_tokens=True, padding="longest", return_tensors="pt").to(DEVICE)
 
         with torch.no_grad():

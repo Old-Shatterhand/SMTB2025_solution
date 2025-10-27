@@ -81,10 +81,12 @@ def fit_model(task, algo, trainX, trainY, binary: bool = False) -> sklearn.base.
         elif algo == "xgb":
             return XGBRegressor(
                 tree_method="hist",
-                n_estimators=50,
-                max_depth=20,
+                n_estimators=50,  # >1000
+                max_depth=20,  # <5-11
                 random_state=42,
                 device="cpu",
+                # early stopping
+                # pruning
             ).fit(trainX, trainY)
         elif algo == "knn":
             return KNeighborsRegressor(n_neighbors=5, weights="distance", algorithm="brute", metric="cosine").fit(trainX, trainY)
