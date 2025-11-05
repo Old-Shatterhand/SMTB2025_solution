@@ -4,6 +4,12 @@ import pandas as pd
 
 
 def process_esol_data(save_path: Path) -> None:
+    """
+    Process eSOL dataset and save to specified path.
+
+    Args:
+        save_path (Path): Directory to save the processed dataset.
+    """
     df_train = pd.read_csv("hf://datasets/AI4Protein/eSOL/train.csv")
     df_train["split"] = "train"
     df_valid = pd.read_csv("hf://datasets/AI4Protein/eSOL/valid.csv")

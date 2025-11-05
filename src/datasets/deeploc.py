@@ -3,7 +3,13 @@ from pathlib import Path
 import pandas as pd
 
 
-def process_deeploc_data(save_path: Path):
+def process_deeploc_data(save_path: Path) -> None:
+    """
+    Process DeepLoc2 dataset and save both 10-class and binary classification versions.
+
+    Args:
+        save_path (Path): Directory to save the processed datasets.
+    """
     df_train = pd.read_parquet("hf://datasets/bloyal/deeploc/deeploc-train.parquet")
     df_train["split"] = "train"
     df_valid = pd.read_parquet("hf://datasets/bloyal/deeploc/deploc-val.parquet")

@@ -24,23 +24,27 @@ if result_file.exists():
     exit(0)
 result_folder.mkdir(parents=True, exist_ok=True)
 
+# Load SCOPE data and reduce to the top-k labels
 df = pd.read_csv(Path("/") / "scratch" / "SCRATCH_SAS" / "roman" / "SMTB" / "datasets" / "scope_40_208.csv")
 top_k_labels = set(x[0] for x in list(sorted(dict(df[args.level].value_counts()).items(), key=lambda x: x[1], reverse=True)[:args.top_k]))
 df = df[df[args.level].isin(top_k_labels)].reset_index(drop=True)
 
+# Load the similarity martix from foldseek and reduce it to the current set of proteins
 with open("/scratch/SCRATCH_SAS/roman/SMTB/datasets/scope_foldseek.pkl", "rb") as f:
     M, id_map = pickle.load(f)
 mask = [id_map[idx] for idx in df["scope_id"]]
 M = M[np.ix_(mask, mask)]
 
+# Load embeddings and compute their norm
 embeds = {}
 norms = {}
 for idx in df["ID"]:
     with open(args.embed_path / f"{idx}.pkl", "rb") as f:
         embeds[idx] = pickle.load(f)
     norms[idx] = np.linalg.norm(embeds[idx])
-E = np.zeros((len(df), len(df)))
 
+# Compute the embedding cosine similarity matrix
+E = np.zeros((len(df), len(df)))
 ids = list(df["ID"].values)
 for a, idx_a in enumerate(ids):
     E[a, a] = 1
@@ -48,6 +52,7 @@ for a, idx_a in enumerate(ids):
         E[a, b] = np.dot(embeds[idx_a], embeds[idx_b]) / (norms[idx_a] * norms[idx_b])
         E[b, a] = E[a, b]
 
+# Store the spearman and pearson correlations between Foldseek (M) and embedding (E) similarity matrices
 pd.DataFrame({
     "pearson": [np.corrcoef(M.flatten(), E.flatten())[0, 1]],
     "spearman": [spearmanr(M.flatten(), E.flatten()).statistic],

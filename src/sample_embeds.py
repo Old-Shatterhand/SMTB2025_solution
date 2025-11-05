@@ -6,7 +6,7 @@ from pathlib import Path
 import pandas as pd
 
 
-def sample_dataset(data_path: Path, embed_path: Path, save_path: Path, num_samples: int):
+def sample_dataset(data_path: Path, embed_path: Path, save_path: Path, num_samples: int) -> None:
     """
     Sample a dataset from the given data path and embed it using the specified embedding path.
     

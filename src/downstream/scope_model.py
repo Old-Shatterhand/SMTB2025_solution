@@ -7,7 +7,6 @@ import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
-from sklearn.multioutput import MultiOutputClassifier
 from sklearn.neighbors import KNeighborsClassifier
 import torch
 
@@ -28,30 +27,39 @@ layer = int(args.embed_path.name.split("_")[-1])
 model_name = args.embed_path.parent.parent.name
 result_folder = args.embed_path.parent.parent / "scope_40_208" / f"layer_{layer}"
 result_file = result_folder / f"predictions_{args.function}_{args.level}_{args.top_k}.pkl"
-# if result_file.exists():
-#     print(f"Results already exist.")
-#     exit(0)
+
+# Check if result file already exists and skip eventually
+if result_file.exists():
+    print(f"Results already exist.")
+    exit(0)
 result_folder.mkdir(parents=True, exist_ok=True)
 
+# Load SCOPE data and reduce to the top-k labels
 df = pd.read_csv(Path("/") / "scratch" / "SCRATCH_SAS" / "roman" / "SMTB" / "datasets" / "scope_40_208.csv")
 top_k_labels = set(x[0] for x in list(sorted(dict(df[args.level].value_counts()).items(), key=lambda x: x[1], reverse=True)[:args.top_k]))
 df = df[df[args.level].isin(top_k_labels)].reset_index(drop=True)
-train_X, train_Y = build_dataloader(df, args.embed_path, args.level)
+train_X, train_Y = build_dataloader(df[df["split"] == "train"], args.embed_path, args.level)
+val_X, val_Y = build_dataloader(df[df["split"] == "val"], args.embed_path, args.level)
+test_X, test_Y = build_dataloader(df[df["split"] == "test"], args.embed_path, args.level)
 
 # Set seeds
 random.seed(args.seed)
 np.random.seed(args.seed)
 torch.manual_seed(args.seed)
 
+# Train the model and make predictions
 if args.function == "rf":
     model = RandomForestClassifier(n_estimators=100, random_state=args.seed)
 elif args.function == "lr":
     model = LogisticRegression(random_state=args.seed)
 elif args.function == "knn":
     model = KNeighborsClassifier(n_neighbors=5, weights="distance", algorithm="brute", metric="cosine")
+
 model.fit(train_X, train_Y)
 train_prediction = model.predict(train_X)
+val_prediction = model.predict(val_X)
+test_prediction = model.predict(test_X)
 with open(result_file, "wb") as f:
-    pickle.dump(((train_prediction, train_Y),), f)
+    pickle.dump(((train_prediction, train_Y), (val_prediction, val_Y), (test_prediction, test_Y)), f)
 
 print(f"Done in {time() - start:.2f} seconds")

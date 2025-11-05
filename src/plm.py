@@ -29,7 +29,7 @@ PLM_MODELS = {
 }
 
 
-def run_esm(model_name: str, data_path: Path, output_path: Path):
+def run_esm(model_name: str, data_path: Path, output_path: Path) -> None:
     """
     Run ESM model to extract embeddings for sequences in the given data path.
 
@@ -62,10 +62,9 @@ def run_esm(model_name: str, data_path: Path, output_path: Path):
             with open(output_path / f"layer_{i}" / f"{idx}.pkl", "wb") as f:
                 pickle.dump(layer[0, 1: -1].cpu().numpy().mean(axis=0), f)
         del outputs
-    print(f"Embedded all sequences with {model_name}")
 
 
-def run_esmc(model_name: str, data_path: Path, output_path: Path):
+def run_esmc(model_name: str, data_path: Path, output_path: Path) -> None:
     data = pd.read_csv(data_path)
     num_layers = 30 if "300m" in model_name else 36
     for i in range(num_layers + 1):
@@ -87,10 +86,9 @@ def run_esmc(model_name: str, data_path: Path, output_path: Path):
         with open(output_path / f"layer_{num_layers}" / f"{idx}.pkl", "wb") as f:
             pickle.dump(logits_output.embeddings[0, 1:-1].cpu().float().numpy().mean(axis=0), f)
         del logits_output
-    print(f"Embedded all sequences with {model_name}")
 
 
-def run_ankh(model_name: str, data_path: Path, output_path: Path):
+def run_ankh(model_name: str, data_path: Path, output_path: Path) -> None:
     data = pd.read_csv(data_path)
     num_layers = 48
     for i in range(num_layers + 1):
@@ -113,7 +111,7 @@ def run_ankh(model_name: str, data_path: Path, output_path: Path):
         del embeddings
 
 
-def run_prostt5(data_path: Path, output_path: Path):
+def run_prostt5(data_path: Path, output_path: Path) -> None:
     data = pd.read_csv(data_path)
     num_layers = 24
     for i in range(num_layers + 1):
@@ -138,7 +136,7 @@ def run_prostt5(data_path: Path, output_path: Path):
         del embeddings
 
 
-def run_prott5(data_path: Path, output_path: Path):
+def run_prott5(data_path: Path, output_path: Path) -> None:
     data = pd.read_csv(data_path)
     num_layers = 24
     for i in range(num_layers + 1):
@@ -163,7 +161,7 @@ def run_prott5(data_path: Path, output_path: Path):
         del embedding_repr
 
 
-def run_ohe(data_path: Path, output_path: Path):
+def run_ohe(data_path: Path, output_path: Path) -> None:
     """
     One-hot encode sequences and save them to the output path.
     """
@@ -183,7 +181,7 @@ def run_ohe(data_path: Path, output_path: Path):
             pickle.dump(one_hot.mean(axis=0), f)
 
 
-def run_esm_batched(model_name: str, num_layers: int, data_path: str, output_path: str, batch_size: int = 16):
+def run_esm_batched(model_name: str, num_layers: int, data_path: str, output_path: str, batch_size: int = 16) -> None:
     """Not in use, but kept for reference."""
     out = Path(output_path)
     out.mkdir(parents=True, exist_ok=True)

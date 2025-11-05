@@ -2,15 +2,38 @@ from argparse import ArgumentParser
 from pathlib import Path
 
 from Bio import SeqIO
+import numpy as np
 import pandas as pd
 
 
-def seq2rec(seq):
+def seq2rec(seq) -> dict:
+    """
+    Convert a Bio.SeqRecord to a dictionary with sequence and SCOPe classification levels.
+
+    Args:
+        seq (SeqRecord): A Bio.SeqRecord object representing a protein sequence.
+    Returns:
+        dict: A dictionary containing the sequence and its SCOPe classification levels.
+    """
     classes = seq.description.split(" ")[1].split(".")
-    return {"sequence": str(seq.seq).upper(), "class_": classes[0], "fold": ".".join(classes[:2]), "superfamily": ".".join(classes[:3]), "family": ".".join(classes[:4]), "scope": ".".join(classes), "scope_id": seq.id}
+    return {
+        "sequence": str(seq.seq).upper(), 
+        "class_": classes[0], 
+        "fold": ".".join(classes[:2]), 
+        "superfamily": ".".join(classes[:3]), 
+        "family": ".".join(classes[:4]), 
+        "scope": ".".join(classes), 
+        "scope_id": seq.id
+    }
 
 
-def process_scope_40(save_path: Path):
+def process_scope_40(save_path: Path) -> None:
+    """
+    Process SCOPe 40 dataset and save to specified path.
+
+    Args:
+        save_path (Path): Directory to save the processed dataset.
+    """
     # TODO: Download SCOPe_40 from https://scop.berkeley.edu/downloads/scopeseq-2.08/astral-scopedom-seqres-gd-sel-gs-bib-40-2.08.fa
 
     with open(save_path / "scope_40_208.fasta", "r") as f:
@@ -28,8 +51,10 @@ def process_scope_40(save_path: Path):
     df["family"] = df["family"].apply(lambda fam: family_map[fam])
     df["ID"] = [f"P{idx:05d}" for idx in range(len(df))]
     df = df.astype({"class_": "int32", "fold": "int32", "superfamily": "int32", "family": "int32"})
+    df["split"] = np.random.choice(["train", "val", "test"], size=len(df), p=[0.8, 0.1, 0.1])
 
-    df[["ID", "sequence", "scope", "class_", "fold", "superfamily", "family", "scope_id"]].to_csv(save_path / "scope_40_208.csv", index=False)
+    df[["ID", "sequence", "scope", "class_", "fold", "superfamily", "family", "scope_id", "split"]].to_csv(save_path / "scope_40_208.csv", index=False)
+
 
 if __name__ == "__main__":
     parser = ArgumentParser()

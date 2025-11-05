@@ -11,15 +11,17 @@ from sklearn.neighbors import KNeighborsRegressor
 from xgboost import XGBRegressor
 
 
-def build_dataloader(df: pd.DataFrame, embed_path: Path, labels: str | list[str] = "label"):
+def build_dataloader(df: pd.DataFrame, embed_path: Path, labels: str | list[str] = "label") -> tuple[np.ndarray, np.ndarray]:
     """
     Build a DataLoader for the given DataFrame and embedding path.
 
-    :param df: DataFrame containing the data.
-    :param embed_path: Path to the directory containing the embeddings.
-    :param dataloader_kwargs: Additional arguments for DataLoader.
+    Args:
+        df: DataFrame containing the data.
+        embed_path: Path to the directory containing the embeddings.
+        labels: Column name(s) for the target labels.
 
-    :return: DataLoader for the embeddings and targets.
+    Returns:
+        Tuple of (inputs, targets) where inputs are the embeddings and targets are the labels.
     """
     embed_path = Path(embed_path)
     embeddings = []
@@ -46,16 +48,16 @@ def build_dataloader(df: pd.DataFrame, embed_path: Path, labels: str | list[str]
     return inputs, targets
 
 
-def multioutput_mcc(y_true, y_pred):
+def multioutput_mcc(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     """
     Compute the average Matthews Correlation Coefficient (MCC) for a multi-output task.
 
-    Parameters:
-    - y_true: np.ndarray of shape (n_samples, n_outputs)
-    - y_pred: np.ndarray of shape (n_samples, n_outputs)
+    Args:
+        y_true: np.ndarray of shape (n_samples, n_outputs)
+        y_pred: np.ndarray of shape (n_samples, n_outputs)
 
     Returns:
-    - float: average MCC across outputs
+        float: average MCC across outputs
     """
     y_true = np.asarray(y_true)
     y_pred = np.asarray(y_pred)
@@ -71,23 +73,23 @@ def multioutput_mcc(y_true, y_pred):
             mcc = 0.0
         mccs.append(mcc)
     
-    return np.mean(mccs)
+    return float(np.mean(mccs))
 
 
-def fit_model(task, algo, trainX, trainY, binary: bool = False) -> sklearn.base.BaseEstimator:
+def fit_model(task: str, algo: str, trainX: np.ndarray, trainY: np.ndarray, binary: bool = False) -> sklearn.base.BaseEstimator:
+    """
+    Fit a machine learning model based on the specified task and algorithm.
+
+    Args:
+        task: "regression" or "classification"
+        algo: Algorithm to use ("lr", "knn")
+        trainX: Training features
+        trainY: Training labels
+        binary: Indicator for binary classification (only relevant if task is "classification")
+    """
     if task == "regression":
         if algo == "lr":
             return LinearRegression().fit(trainX, trainY)
-        elif algo == "xgb":
-            return XGBRegressor(
-                tree_method="hist",
-                n_estimators=50,  # >1000
-                max_depth=20,  # <5-11
-                random_state=42,
-                device="cpu",
-                # early stopping
-                # pruning
-            ).fit(trainX, trainY)
         elif algo == "knn":
             return KNeighborsRegressor(n_neighbors=5, weights="distance", algorithm="brute", metric="cosine").fit(trainX, trainY)
     else:
@@ -99,49 +101,3 @@ def fit_model(task, algo, trainX, trainY, binary: bool = False) -> sklearn.base.
         elif algo == "knn":
             return KNeighborsRegressor(n_neighbors=5, weights="distance", algorithm="brute", metric="cosine").fit(trainX, trainY)
     raise ValueError(f"Unknown task: {task} or algorithm: {algo}")
-
-
-def twonn_dimension(data: np.ndarray):
-    """
-    Calculates intrinsic dimension of the provided data points with the TWO-NN algorithm.
-    
-    Parameters:
-        data: 2d data matrix. Samples on rows and features on columns.
-    Returns:
-        Intrinsic dimension of the dataset according to TWO-NN.
-    """
-    N = len(data)
-    
-    #mu = r2/r1 for each data point
-    mu = []
-    for i,x in enumerate(data):
-        
-        dist = np.sort(np.sqrt(np.sum((x-data)**2, axis=1)))
-        r1, r2 = dist[dist > 0][:2]
-
-        mu.append((i + 1, r2 / r1))
-
-    #permutation function
-    sigma_i = dict(zip(range(1, len(mu) + 1), np.array(sorted(mu, key=lambda x: x[1]))[:, 0].astype(int)))
-
-    mu = dict(mu)
-
-    #cdf F(mu_{sigma(i)})
-    F_i = {}
-    for i in mu:
-        F_i[sigma_i[i]] = i / N
-
-    #fitting coordinates
-    x = np.log([mu[i] for i in sorted(mu.keys())])
-    y = np.array([1-F_i[i] for i in sorted(mu.keys())])
-
-    #avoid having log(0)
-    x = x[y > 0]
-    y = y[y > 0]
-
-    y = -1*np.log(y)
-
-    #fit line through origin to get the dimension
-    d = np.linalg.lstsq(np.vstack([x, np.zeros(len(x))]).T, y, rcond=None)[0][0]
-        
-    return d

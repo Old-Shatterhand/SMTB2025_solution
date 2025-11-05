@@ -5,7 +5,12 @@ import pandas as pd
 
 
 def process_stability(save_path: Path):
-    """Process the fluorescence dataset and save it to the specified path."""
+    """
+    Process the stability dataset and save it to the specified path.
+
+    Args:
+        save_path (Path): Directory to save the processed dataset.
+    """
     df_train = pd.read_parquet("hf://datasets/proteinglm/stability_prediction/data/train-00000-of-00001.parquet")
     df_train["split"] = "train"
     df_valid = pd.read_parquet("hf://datasets/proteinglm/stability_prediction/data/valid-00000-of-00001.parquet")
