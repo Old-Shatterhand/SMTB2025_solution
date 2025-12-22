@@ -7,11 +7,11 @@ import sklearn
 from sklearn.metrics import matthews_corrcoef
 from sklearn.multioutput import MultiOutputClassifier
 from sklearn.linear_model import LinearRegression, LogisticRegression
-from sklearn.neighbors import KNeighborsRegressor
+from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
 from xgboost import XGBRegressor
 
 
-def build_dataloader(df: pd.DataFrame, embed_path: Path, labels: str | list[str] = "label") -> tuple[np.ndarray, np.ndarray]:
+def build_dataloader(df: pd.DataFrame, embed_path: Path, labels: str | list[str] | None = "label", shuffle: bool = True) -> tuple[np.ndarray, np.ndarray | None]:
     """
     Build a DataLoader for the given DataFrame and embedding path.
 
@@ -38,14 +38,17 @@ def build_dataloader(df: pd.DataFrame, embed_path: Path, labels: str | list[str]
             pass
     
     inputs = np.stack(embeddings)
-    targets = np.array(df[df["ID"].isin(valid_ids)][labels].values).astype(np.float32)
+    if shuffle:
+        permut = np.random.permutation(inputs.shape[0])
+        inputs = inputs[permut]
 
-    # Shuffle the inputs and targets
-    permut = np.random.permutation(inputs.shape[0])
-    inputs = inputs[permut]
-    targets = targets[permut]
-    
-    return inputs, targets
+    if labels is not None:
+        targets = np.array(df[df["ID"].isin(valid_ids)][labels].values).astype(np.float32)
+        if shuffle:
+            targets = targets[permut]
+        return inputs, targets
+    else:
+        return inputs, None
 
 
 def multioutput_mcc(y_true: np.ndarray, y_pred: np.ndarray) -> float:
@@ -67,7 +70,7 @@ def multioutput_mcc(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     mccs = []
     for i in range(y_true.shape[1]):
         try:
-            mcc = matthews_corrcoef(y_true[:, i], y_pred[:, i])
+            mcc = matthews_corrcoef(y_true[:, i], y_pred[:, i] > 0.5)
         except ValueError:
             # Handle cases where MCC is undefined (e.g., only one class present)
             mcc = 0.0
@@ -89,15 +92,15 @@ def fit_model(task: str, algo: str, trainX: np.ndarray, trainY: np.ndarray, bina
     """
     if task == "regression":
         if algo == "lr":
-            return LinearRegression().fit(trainX, trainY)
+            return LinearRegression(n_jobs=1).fit(trainX, trainY)
         elif algo == "knn":
-            return KNeighborsRegressor(n_neighbors=5, weights="distance", algorithm="brute", metric="cosine").fit(trainX, trainY)
+            return KNeighborsRegressor(n_neighbors=5, weights="distance", algorithm="brute", metric="cosine", n_jobs=1).fit(trainX, trainY)
     else:
         if algo == "lr":
             if binary:
-                return LogisticRegression().fit(trainX, trainY)
+                return LogisticRegression(n_jobs=1).fit(trainX, trainY)
             else:
-                return MultiOutputClassifier(LogisticRegression()).fit(trainX, trainY)
+                return MultiOutputClassifier(LogisticRegression(n_jobs=1), n_jobs=1).fit(trainX, trainY)
         elif algo == "knn":
-            return KNeighborsRegressor(n_neighbors=5, weights="distance", algorithm="brute", metric="cosine").fit(trainX, trainY)
+            return KNeighborsClassifier(n_neighbors=5, weights="distance", algorithm="brute", metric="cosine", n_jobs=1).fit(trainX, trainY)
     raise ValueError(f"Unknown task: {task} or algorithm: {algo}")

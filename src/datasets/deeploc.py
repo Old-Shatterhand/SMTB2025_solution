@@ -21,11 +21,15 @@ def process_deeploc_data(save_path: Path) -> None:
     df["ID"] = [f"P{i:05d}" for i in range(len(df))]
     df.rename(columns={"Sequence": "sequence"}, inplace=True)
 
+    cols = [x for x in df.columns if x not in {"ID", "sequence", "split", "ACC", "Kingdom"}]
+    df[cols] = df[cols].astype(int)
+
     save_path.mkdir(parents=True, exist_ok=True)
-    df.to_csv(save_path / 'deeploc2.csv', index=False)
+    df[['ID', 'sequence', 'Cytoplasm', 'Nucleus', 'Extracellular', 'Cell membrane', 'Mitochondrion', 'Plastid', 'Endoplasmic reticulum', 'Lysosome/Vacuole', 'Golgi apparatus', 'Peroxisome', 'split']].to_csv(save_path / 'deeploc2.csv', index=False)
+    print(df.columns)
     print("DeepLoc2 10-class dataset saved to", save_path / 'deeploc2.csv')
 
-    df = df[["sequence", "Membrane", "split", "ID"]]
+    df = df[["ID", "sequence", "Membrane", "split"]]
     df.rename(columns={"Membrane": "label"}, inplace=True)
     df.to_csv(save_path / 'deeploc2_bin.csv', index=False)
     print("DeepLoc2 binary dataset saved to", save_path / 'deeploc2_bin.csv')

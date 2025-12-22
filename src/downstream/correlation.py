@@ -11,6 +11,7 @@ parser = argparse.ArgumentParser(description="Embeddings.")
 parser.add_argument("--embed-path", type=Path, required=True)
 parser.add_argument('--top-k', type=int, default=4, help='Number of top labels to consider')
 parser.add_argument('--level', required=True, choices=["class", "fold", "family", "superfamily"])
+parser.add_argument('--force', action='store_true', help='Force recomputation even if results exist')
 args = parser.parse_args()
 
 start = time()
@@ -19,7 +20,7 @@ layer = int(args.embed_path.name.split("_")[-1])
 model_name = args.embed_path.parent.parent.name
 result_folder = args.embed_path.parent.parent / "scope_40_208" / f"layer_{layer}"
 result_file = result_folder / f"correlations_{args.level}_{args.top_k}.csv"
-if result_file.exists():
+if not args.force and result_file.exists():
     print(f"Results already exist.")
     exit(0)
 result_folder.mkdir(parents=True, exist_ok=True)
