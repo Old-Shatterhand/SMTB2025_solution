@@ -74,8 +74,11 @@ def validation_loop(model, dataloader, loss_fn, device):
     val_loss, samples = 0, 0
     
     with torch.no_grad(): # Disable gradient calculations during validation
-        for tokenized_batch, targets in dataloader:
-            predictions = model(input_ids=tokenized_batch['input_ids'], attention_mask=tokenized_batch['attention_mask'])
+        for batch, targets in dataloader:
+            if hasattr(batch, "input_ids"):
+                predictions = model(input_ids=batch['input_ids'], attention_mask=batch['attention_mask'])
+            else:
+                predictions = model(batch)
             loss = loss_fn(predictions, targets)
             val_loss += loss.item() * targets.size(0)
             samples += targets.size(0)
@@ -97,10 +100,13 @@ def train_loop(model, train_dataloader, val_dataloader, loss_fn, optimizer, epoc
         train_loss, samples = 0, 0
         start_time = time.time()
 
-        for tokenized_batch, targets in train_dataloader:
+        for batch, targets in train_dataloader:
             optimizer.zero_grad()
 
-            predictions = model(input_ids=tokenized_batch['input_ids'], attention_mask=tokenized_batch['attention_mask'])
+            if hasattr(batch, "input_ids"):
+                predictions = model(input_ids=batch['input_ids'], attention_mask=batch['attention_mask'])
+            else:
+                predictions = model(batch)
             loss = loss_fn(predictions, targets)
 
             loss.backward()
@@ -138,10 +144,13 @@ def predict(model, dataloader):
     predictions, labels = [], []
 
     with torch.no_grad():
-        for tokenized_batch, targets in dataloader:
-            preds = model(input_ids=tokenized_batch['input_ids'], attention_mask=tokenized_batch['attention_mask'])
-            predictions.extend(preds.squeeze(1).cpu().numpy())
-            labels.extend(targets.squeeze(1).cpu().numpy())
+        for batch, targets in dataloader:
+            if hasattr(batch, "input_ids"):
+                pred = model(input_ids=batch['input_ids'], attention_mask=batch['attention_mask'])
+            else:
+                pred = model(batch)
+            predictions.extend(pred.squeeze().cpu().numpy())
+            labels.extend(targets.squeeze().cpu().numpy())
 
     return predictions, labels
 

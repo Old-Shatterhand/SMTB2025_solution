@@ -21,11 +21,11 @@ AA_OHE = {
 }
 
 PLM_MODELS = {
-    "esm_t6": "facebook/esm2_t6_8M_UR50D",
-    "esm_t12": "facebook/esm2_t12_35M_UR50D",
-    "esm_t30": "facebook/esm2_t30_150M_UR50D",
-    "esm_t33": "facebook/esm2_t33_650M_UR50D",
-    "esm_t36": "facebook/esm2_t36_3B_UR50D",
+    "esm-t6": "facebook/esm2_t6_8M_UR50D",
+    "esm-t12": "facebook/esm2_t12_35M_UR50D",
+    "esm-t30": "facebook/esm2_t30_150M_UR50D",
+    "esm-t33": "facebook/esm2_t33_650M_UR50D",
+    "esm-t36": "facebook/esm2_t36_3B_UR50D",
     "ankh-base": "ElnaggarLab/ankh-base",
     "ankh-large": "ElnaggarLab/ankh-large",
 }
@@ -276,6 +276,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     print(sys.argv[1:])
+    args.model_name = args.model_name.lower().replace("_", "-")
 
     if "esmc" in args.model_name:
         run_esmc(args.model_name, args.data_path, args.output_path, args.aa_level, args.empty, args.force)
