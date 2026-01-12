@@ -1,6 +1,6 @@
 universe = docker
 docker_image = gjoschka/kinodata3d-b0:2.3.0-cuda12.1
-executable = chr_aa_embed.sh
+executable = chr_aa_embed_4.sh
 
 output = runlogs/train.out
 error = runlogs/train.err
@@ -9,11 +9,10 @@ should_transfer_files = YES
 
 request_GPUs = 1
 request_CPUs = 8
-request_memory = 64G
-requirements = (UidDomain == "cs.uni-saarland.de") && (GPUs_GlobalMemoryMb >= 24000)
+request_memory = 16G
+requirements = (UidDomain == "cs.uni-saarland.de") && (GPUs_GlobalMemoryMb >= 18000)
 
 +WantGPUHomeMounted = true
 +WantScratchMounted = true
 
 queue 1
-
