@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 
-BASE="/scratch/SCRATCH_SAS/roman/SMTB"
+BASE="/scratch/chair_kalinina/s8rojoer/SMTB"
 
 echo "Go Home"
-cd $BASE/SMTB2025_solution
+cd $HOME/SMTB2025_solution
 
 # Embed sequences (not to be paralellized to not exceed GPU RAM)
 for model in esm_t36 ankh-large; do
