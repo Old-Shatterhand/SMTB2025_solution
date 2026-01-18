@@ -79,7 +79,7 @@ def run_esmc(model_name: str, data_path: Path, output_path: Path, aa_level: bool
         (output_path / f"layer_{i}").mkdir(parents=True, exist_ok=True)
 
     if not empty:
-        model = ESMC.from_pretrained(model_name).to(DEVICE).eval()
+        model = ESMC.from_pretrained(model_name.replace("-", "_")).to(DEVICE).eval()
     else:
         if "300m" in model_name:
             model = ESMC(n_layers=30, n_heads=15, d_model=960, tokenizer=EsmSequenceTokenizer()).to(DEVICE).eval()

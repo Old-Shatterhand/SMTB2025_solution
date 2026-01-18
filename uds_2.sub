@@ -1,6 +1,6 @@
 universe = docker
 docker_image = gjoschka/kinodata3d-b0:2.3.0-cuda12.1
-executable = chr_aa_embed_2.sh
+executable = chr_aa_pred_2.sh
 
 accounting_group = chair_kalinina.long_running
 

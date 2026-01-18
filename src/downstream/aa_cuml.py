@@ -1,3 +1,8 @@
+import os
+os.environ['CUPY_NVCC_GENERATE_CODE'] = 'current'
+
+import sys
+import copy
 import random
 import pickle
 import argparse
@@ -11,13 +16,13 @@ from sklearn.multioutput import MultiOutputClassifier
 import torch
 import numpy as np
 import pandas as pd
-from dadapy import data
 from torch.utils.data import DataLoader
 from cuml.manifold import UMAP as cuUMAP
 from cuml.neighbors import KNeighborsClassifier as cuKNN
 from cuml.random_projection import GaussianRandomProjection as cuGRP
 from sklearn.neighbors import KNeighborsClassifier as skKNN
 
+from src.downstream.dada import compute_id_2NN, return_data_overlap
 from src.unfrozen_esm import ProteinDataset, predict, train_loop
 
 
@@ -70,8 +75,8 @@ class LRHead(torch.nn.Module):
 
 
 def train_lr_head(out_folder, train_X, train_y, valid_X, valid_y, test_X, test_y, binary: bool = False):
-    loss_file = out_folder / f"loss_unfrozen_lr_42.csv"
-    result_file = out_folder / f"predictions_lr_42_sklearn.pkl"
+    # loss_file = out_folder / f"loss_unfrozen_lr_42.csv"
+    result_file = out_folder / f"predictions_lr_42.pkl"
 
     # ESM-t6 818s für 2000 samples mit Backprop, 162s mit sklearn LR, 80s mit cuML LR
     # Ankh L 152s fuer 200 samples mit cuML LR, 3862s for 2000, 1023s for 1000
@@ -118,7 +123,7 @@ def train_lr_head(out_folder, train_X, train_y, valid_X, valid_y, test_X, test_y
 def build_aa_dataloader(df, n_classes: int, embed_path):
     CLASS_MAPPING = {c: n for n, c in enumerate(MAP[n_classes])}
     if n_classes == 2:
-        labels = "labels"
+        labels = "label"
     elif n_classes == 3:
         labels = "secstr_3c"
     elif n_classes == 8:
@@ -127,6 +132,8 @@ def build_aa_dataloader(df, n_classes: int, embed_path):
     embeddings = []
     aa_labels = []
     
+    print(df.head())
+    print(embed_path)
     for _, row in df.iterrows():
         try:
             tmp_labels = row[labels]
@@ -136,7 +143,8 @@ def build_aa_dataloader(df, n_classes: int, embed_path):
                 tmp = pickle.load(f)
             embeddings.append(tmp)
             aa_labels += [CLASS_MAPPING[c] for c in tmp_labels]
-        except Exception:
+        except Exception as e:
+            print(e)
             pass
     embeddings = np.concatenate(embeddings, axis=0)
     return embeddings, np.array(aa_labels)
@@ -190,6 +198,7 @@ parser.add_argument('--dim-red', type=str, default="none", choices=["umap", "ran
 parser.add_argument('--no-num', type=int, default=10, help='Number of neighbors for noverlap computation')
 parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
 parser.add_argument('--force', action='store_true', help='Force recomputation even if results exist')
+print(sys.argv)
 args = parser.parse_args()
 
 start = time()
@@ -202,7 +211,7 @@ torch.manual_seed(args.seed)
 
 dataset = args.data_path.stem
 model_name = args.embed_base.parent.name
-df = pd.read_csv(args.data_path, nrows=N_ROWS)
+df = pd.read_csv(args.data_path)  # , nrows=N_ROWS)
 result_fix = "_".join([str(N_ROWS), args.lib, args.dim_red, str(args.seed)])
 
 print(f"[{time() - start:.2f}s] Loading layer 0 embeddings...")
@@ -219,8 +228,7 @@ curr_val_X_red = reducer(curr_val_X)
 curr_test_X_red = reducer(curr_test_X)
 
 print(f"[{time() - start:.2f}s] Fitting kNN on layer 0 ...")
-curr_X = data.Data(curr_train_X_red)
-curr_train_pred, curr_val_pred, curr_test_pred, (curr_X.distances, curr_X.dist_indices) = knn(curr_train_X_red, curr_train_y, curr_val_X_red, curr_test_X_red, perm=permutation, mode=args.lib)
+curr_train_pred, curr_val_pred, curr_test_pred, (curr_distances, curr_dist_indices) = knn(curr_train_X_red, curr_train_y, curr_val_X_red, curr_test_X_red, perm=permutation, mode=args.lib)
 
 with open(args.embed_base / "layer_0" / f"predictions_{result_fix}_knn.pkl", "wb") as f:
     pickle.dump(((curr_train_pred, curr_train_y.squeeze()), (curr_val_pred, curr_val_y.squeeze()), (curr_test_pred, curr_test_y.squeeze())), f)
@@ -231,7 +239,7 @@ for layer in range(0, args.max_layer + 1):
     print(f"[{time() - start:.2f}s] Processing layer {layer} ...")
     result_folder = args.embed_base / f"layer_{layer}"
     
-    twonn_id = curr_X.compute_id_2NN()[0]
+    twonn_id = compute_id_2NN(curr_distances)
     print(f"[{time() - start:.2f}s] Layer {layer}: 2NN ID = {twonn_id}")
     pd.DataFrame({
         "twonn_id": [twonn_id],
@@ -252,18 +260,17 @@ for layer in range(0, args.max_layer + 1):
     next_test_X_red = reducer(next_test_X)
 
     print(f"[{time() - start:.2f}s] Fitting kNN on layer {layer + 1} ...")
-    next_X = data.Data(next_train_X_red)
-    next_train_pred, next_val_pred, next_test_pred, (next_X.distances, next_X.dist_indices) = knn(next_train_X_red, next_train_y, next_val_X_red, next_test_X_red, perm=permutation, mode=args.lib)
+    next_train_pred, next_val_pred, next_test_pred, (next_distances, next_dist_indices) = knn(next_train_X_red, next_train_y, next_val_X_red, next_test_X_red, perm=permutation, mode=args.lib)
 
     with open(args.embed_base / f"layer_{layer + 1}" / f"predictions_{result_fix}_knn.pkl", "wb") as f:
         pickle.dump(((next_train_pred, next_train_y.squeeze()), (next_val_pred, next_val_y.squeeze()), (next_test_pred, next_test_y.squeeze())), f)
     print(f"[{time() - start:.2f}s] Training LR on layer {layer + 1} ...")
     train_lr_head(args.embed_base / f"layer_{layer + 1}", next_train_X_red, next_train_y, next_val_X_red, next_val_y, next_test_X_red, next_test_y)
 
-    noverlap = curr_X.return_data_overlap(coordinates=next_train_X_red, distances=next_X.distances, dist_indices=next_X.dist_indices, k=args.no_num)
+    noverlap = return_data_overlap(curr_dist_indices, next_dist_indices, k=args.no_num)
     print(f"[{time() - start:.2f}s] Layer {layer}: Neighbor Overlap = {noverlap}")
     pd.DataFrame({
         "neighbor_overlap": [noverlap],
     }).to_csv(result_folder / f"noverlap_{args.no_num}_{result_fix}.csv", index=False)
 
-    curr_X = next_X
+    curr_dist_indices = copy.deepcopy(next_dist_indices)
