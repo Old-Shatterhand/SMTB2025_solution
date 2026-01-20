@@ -4,8 +4,8 @@ NCORES=4
 echo "Go Home"
 cd $HOME/SMTB2025_solution
 
-pip install --extra-index-url=https://pypi.nvidia.com --upgrade --force-reinstall cuml-cu12
-pip install --upgrade --force-reinstall torch numpy"<=2.2" pandas scikit-learn matplotlib transformers datasets tqdm
+# pip install --extra-index-url=https://pypi.nvidia.com --upgrade --force-reinstall cuml-cu12
+# pip install --upgrade --force-reinstall torch numpy"<=2.2" pandas scikit-learn matplotlib transformers datasets tqdm
 
 echo "Start AA CuML Predictions"
 python -c "import cuml; print('CuML installed successfully.')"
