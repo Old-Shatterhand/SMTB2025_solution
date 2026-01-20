@@ -212,6 +212,8 @@ torch.manual_seed(args.seed)
 dataset = args.data_path.stem
 model_name = args.embed_base.parent.name
 df = pd.read_csv(args.data_path)  # , nrows=N_ROWS)
+if "sampled" in df.columns:
+    df = df[df["sampled"] == True]
 result_fix = "_".join([str(N_ROWS), args.lib, args.dim_red, str(args.seed)])
 
 print(f"[{time() - start:.2f}s] Loading layer 0 embeddings...")
