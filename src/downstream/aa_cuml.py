@@ -256,6 +256,7 @@ for layer in range(0, args.max_layer + 1):
 
     print(f"[{time() - start:.2f}s] Reducing dimensionality of layer {layer + 1} ...")
     reducer = dim_red(next_train_X, mode=args.dim_red)
+    permutation = np.random.permutation(next_train_X.shape[0])
     next_train_X_red = reducer(next_train_X)
     next_val_X_red = reducer(next_val_X)
     next_test_X_red = reducer(next_test_X)
