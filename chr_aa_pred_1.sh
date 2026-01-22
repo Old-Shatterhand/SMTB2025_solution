@@ -13,6 +13,6 @@ python -c "import torch; print('GPU:', torch.cuda.is_available())"
 
 for num in 6 12 30 33; do
     python -m src.downstream.aa_cuml --data-path $BASE/datasets/binding.csv --embed-base $BASE/aa_embeddings/esm_t$num/binding/ --n-classes 2 --max-layer $num
-    python -m src.downstream.aa_cuml --data-path $BASE/datasets/scope_40_208.csv --embed-base $BASE/aa_embeddings/esm_t$num/scope_40_208/ --n-classes 3 --max-layer $num
-    python -m src.downstream.aa_cuml --data-path $BASE/datasets/scope_40_208.csv --embed-base $BASE/aa_embeddings/esm_t$num/scope_40_208/ --n-classes 8 --max-layer $num
+    # python -m src.downstream.aa_cuml --data-path $BASE/datasets/scope_40_208.csv --embed-base $BASE/aa_embeddings/esm_t$num/scope_40_208/ --n-classes 3 --max-layer $num
+    # python -m src.downstream.aa_cuml --data-path $BASE/datasets/scope_40_208.csv --embed-base $BASE/aa_embeddings/esm_t$num/scope_40_208/ --n-classes 8 --max-layer $num
 done
