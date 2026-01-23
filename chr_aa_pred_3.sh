@@ -1,3 +1,5 @@
+#!/usr/bin/env bash
+
 BASE="/scratch/chair_kalinina/s8rojoer/SMTB"
 
 echo "Go Home"

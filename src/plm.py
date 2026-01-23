@@ -31,14 +31,24 @@ PLM_MODELS = {
 }
 
 
+def save_embeddings(embeddings: np.ndarray, aa_level: bool, fp) -> None:
+    if aa_level:
+        pickle.dump(embeddings, fp)
+    else:
+        pickle.dump(embeddings.mean(axis=0), fp)
+
+
 def run_esm(model_name: str, data_path: Path, output_path: Path, aa_level: bool = False, empty: bool = False, force: bool = False) -> None:
     """
     Run ESM model to extract embeddings for sequences in the given data path.
 
-    :param model_name: Name of the ESM model to use.
-    :param num_layers: Number of layers to extract embeddings from.
-    :param data_path: Path to the CSV file containing sequences.
-    :param output_path: Path to save the extracted embeddings.
+    Args:
+        model_name: Name of the ESM model to use.
+        data_path: Path to the CSV file containing sequences.
+        output_path: Path to save the extracted embeddings.
+        aa_level: Whether to save amino acid level embeddings or mean pooled embeddings.
+        empty: Whether to use an untrained model.
+        force: Whether to overwrite existing embeddings.
     """
     for i in range(int(model_name.split("_")[1][1:]) + 1):
         (output_path / f"layer_{i}").mkdir(parents=True, exist_ok=True)
@@ -65,14 +75,22 @@ def run_esm(model_name: str, data_path: Path, output_path: Path, aa_level: bool 
             del inputs
         for i, layer in enumerate(outputs.hidden_states):
             with open(output_path / f"layer_{i}" / f"{idx}.pkl", "wb") as f:
-                if aa_level:
-                    pickle.dump(layer[0, 1: -1].cpu().numpy(), f)
-                else:
-                    pickle.dump(layer[0, 1: -1].cpu().numpy().mean(axis=0), f)
+                save_embeddings(layer[0, 1: -1].cpu().numpy(), aa_level, f)
         del outputs
 
 
 def run_esmc(model_name: str, data_path: Path, output_path: Path, aa_level: bool = False, empty: bool = False, force: bool = False) -> None:
+    """
+    Run ESMC model to extract embeddings for sequences in the given data path.
+    
+    Args:
+        model_name: Name of the ESMC model to use.
+        data_path: Path to the CSV file containing sequences.
+        output_path: Path to save the extracted embeddings.
+        aa_level: Whether to save amino acid level embeddings or mean pooled embeddings.
+        empty: Whether to use an untrained model.
+        force: Whether to overwrite existing embeddings.
+    """
     data = pd.read_csv(data_path)
     num_layers = 30 if "300m" in model_name else 36
     for i in range(num_layers + 1):
@@ -96,19 +114,24 @@ def run_esmc(model_name: str, data_path: Path, output_path: Path, aa_level: bool
             )
         for i in range(0, num_layers):
             with open(output_path / f"layer_{i}" / f"{idx}.pkl", "wb") as f:
-                if aa_level:
-                    pickle.dump(logits_output.hidden_states[i, 0, 1:-1].cpu().float().numpy(), f)
-                else:
-                    pickle.dump(logits_output.hidden_states[i, 0, 1:-1].cpu().float().numpy().mean(axis=0), f)
+                save_embeddings(logits_output.hidden_states[i, 0, 1:-1].cpu().float().numpy(), aa_level, f)
         with open(output_path / f"layer_{num_layers}" / f"{idx}.pkl", "wb") as f:
-            if aa_level:
-                pickle.dump(logits_output.embeddings[0, 1:-1].cpu().float().numpy(), f)
-            else:
-                pickle.dump(logits_output.embeddings[0, 1:-1].cpu().float().numpy().mean(axis=0), f)
+            save_embeddings(logits_output.embeddings[0, 1:-1].cpu().float().numpy(), aa_level, f)
         del logits_output
 
 
 def run_ankh(model_name: str, data_path: Path, output_path: Path, aa_level: bool = False, empty: bool = False, force: bool = False) -> None:
+    """
+    Run Ankh model to extract embeddings for sequences in the given data path.
+
+    Args:
+        model_name: Name of the Ankh model to use.
+        data_path: Path to the CSV file containing sequences.
+        output_path: Path to save the extracted embeddings.
+        aa_level: Whether to save amino acid level embeddings or mean pooled embeddings.
+        empty: Whether to use an untrained model.
+        force: Whether to overwrite existing embeddings.
+    """
     data = pd.read_csv(data_path)
     num_layers = 48
     for i in range(num_layers + 1):
@@ -130,14 +153,21 @@ def run_ankh(model_name: str, data_path: Path, output_path: Path, aa_level: bool
 
         for i in range(0, num_layers + 1):
             with open(output_path / f"layer_{i}" / f"{idx}.pkl", "wb") as f:
-                if aa_level:
-                    pickle.dump(embeddings.hidden_states[i][0, 1:].cpu().numpy(), f)
-                else:
-                    pickle.dump(embeddings.hidden_states[i][0, 1:].cpu().numpy().mean(axis=0), f)
+                save_embeddings(embeddings.hidden_states[i][0, 1:].cpu().numpy(), aa_level, f)
         del embeddings
 
 
 def run_prostt5(data_path: Path, output_path: Path, aa_level: bool = False, empty: bool = False, force: bool = False) -> None:
+    """
+    Run ProstT5 model to extract embeddings for sequences in the given data path.
+
+    Args:
+        data_path: Path to the CSV file containing sequences.
+        output_path: Path to save the extracted embeddings.
+        aa_level: Whether to save amino acid level embeddings or mean pooled embeddings.
+        empty: Whether to use an untrained model.
+        force: Whether to overwrite existing embeddings.
+    """
     data = pd.read_csv(data_path)
     num_layers = 24
     for i in range(num_layers + 1):
@@ -161,14 +191,21 @@ def run_prostt5(data_path: Path, output_path: Path, aa_level: bool = False, empt
 
         for i in range(0, num_layers + 1):
             with open(output_path / f"layer_{i}" / f"{idx}.pkl", "wb") as f:
-                if aa_level:
-                    pickle.dump(embeddings.hidden_states[i][0, 1:-1].cpu().numpy(), f)
-                else:
-                    pickle.dump(embeddings.hidden_states[i][0, 1:-1].cpu().numpy().mean(axis=0), f)
+                save_embeddings(embeddings.hidden_states[i][0, 1:-1].cpu().numpy(), aa_level, f)
         del embeddings
 
 
 def run_prott5(data_path: Path, output_path: Path, aa_level: bool = False, empty: bool = False, force: bool = False) -> None:
+    """
+    Run ProtT5 model to extract embeddings for sequences in the given data path.
+    
+    Args:
+        data_path: Path to the CSV file containing sequences.
+        output_path: Path to save the extracted embeddings.
+        aa_level: Whether to save amino acid level embeddings or mean pooled embeddings.
+        empty: Whether to use an untrained model.
+        force: Whether to overwrite existing embeddings.
+    """
     data = pd.read_csv(data_path)
     num_layers = 24
     for i in range(num_layers + 1):
@@ -192,16 +229,20 @@ def run_prott5(data_path: Path, output_path: Path, aa_level: bool = False, empty
 
         for i in range(0, num_layers + 1):
             with open(output_path / f"layer_{i}" / f"{idx}.pkl", "wb") as f:
-                if aa_level:
-                    pickle.dump(embedding_repr.hidden_states[i][0, 1:-1].cpu().numpy(), f)
-                else:
-                    pickle.dump(embedding_repr.hidden_states[i][0, 1:-1].cpu().numpy().mean(axis=0), f)
+                save_embeddings(embedding_repr.hidden_states[i][0, 1:-1].cpu().numpy(), aa_level, f)
         del embedding_repr
 
 
 def run_ohe(data_path: Path, output_path: Path, aa_level: bool = False, empty: bool = False, force: bool = False) -> None:
     """
     One-hot encode sequences and save them to the output path.
+
+    Args:
+        data_path: Path to the CSV file containing sequences.
+        output_path: Path to save the one-hot encoded embeddings.
+        aa_level: Whether to save amino acid level embeddings or mean pooled embeddings.
+        empty: Not used, included for consistency.
+        force: Whether to overwrite existing embeddings.
     """
     (out := (output_path / "layer_0")).mkdir(parents=True, exist_ok=True)
 
@@ -212,17 +253,13 @@ def run_ohe(data_path: Path, output_path: Path, aa_level: bool = False, empty: b
     for idx, seq in tqdm(zip(ids, sequences), total=len(sequences)):
         if not force and (out / f"{idx}.pkl").exists():
             continue
-        
         one_hot = np.zeros((len(seq), 21), dtype=np.float32)
         for i, aa in enumerate(seq[:1022]):
             if aa == "-":
                 continue
             one_hot[i, AA_OHE.get(aa, 20)] = 1
         with open(out / f"{idx}.pkl", "wb") as f:
-            if aa_level:
-                pickle.dump(one_hot, f)
-            else:
-                pickle.dump(one_hot.mean(axis=0), f)
+            save_embeddings(one_hot, aa_level, f)
 
 
 def run_esm_batched(model_name: str, num_layers: int, data_path: str, output_path: str, batch_size: int = 16) -> None:

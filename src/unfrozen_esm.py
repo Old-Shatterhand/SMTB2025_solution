@@ -23,18 +23,27 @@ ESM_MODELS = {
 EARLY_STOPPING_PATIENCE = 10
 
 class HalfFrozenESM(torch.nn.Module):
-    def __init__(self, esm_name, unfreeze: slice, output_logits: bool = False):
+    def __init__(self, esm_name: str, unfreeze: slice, n_outputs: int = 1, output_logits: bool = False):
         super().__init__()
         self.esm = AutoModel.from_pretrained(esm_name)
         # if unfreeze.start < 0 or unfreeze.start >= self.esm.config.num_hidden_layers or unfreeze.stop < 0 or unfreeze.stop > self.esm.config.num_hidden_layers:
         #     raise ValueError(f"unFreeze slice is out of bounds for {esm_name}. The limits are [0, {self.esm.config.num_hidden_layers}]")
-        self.head = torch.nn.Linear(self.esm.config.hidden_size, 1)
+        self.head = torch.nn.Linear(self.esm.config.hidden_size, n_outputs)
         self.output_logits = output_logits
+
+        # Freeze layers according to the unfreeze slice by setting requires_grad
         for i in range(0, self.esm.config.num_hidden_layers):
             for param in self.esm.encoder.layer[i].parameters():
                 param.requires_grad = i not in range(unfreeze.start, unfreeze.stop)
     
-    def forward(self, input_ids, attention_mask):
+    def forward(self, input_ids: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass through the HalfFrozenESM model.
+        
+        Args:
+            input_ids: Tensor of input token IDs.
+            attention_mask: Tensor indicating which tokens should be attended to.
+        """
         outputs = self.esm(input_ids=input_ids, attention_mask=attention_mask)
         pooled_output = outputs.last_hidden_state[:, 1:-1, :].mean(dim=1)  # CLS token
         out = self.head(pooled_output)
@@ -68,7 +77,7 @@ def collate_fn(tokenizer, batch):
     return tokenized.to(DEVICE), targets.to(DEVICE)
 
 
-def validation_loop(model, dataloader, loss_fn, device):
+def validation_loop(model: torch.nn.Module, dataloader: torch.utils.data.DataLoader, loss_fn: torch.nn.Module):
     """Runs the validation process and calculates average loss."""
     model.eval()
     val_loss, samples = 0, 0
@@ -87,7 +96,7 @@ def validation_loop(model, dataloader, loss_fn, device):
     return avg_val_loss
 
 
-def train_loop(model, train_dataloader, val_dataloader, loss_fn, optimizer, epochs, device):
+def train_loop(model: torch.nn.Module, train_dataloader: torch.utils.data.DataLoader, val_dataloader: torch.utils.data.DataLoader, loss_fn: torch.nn.Module, optimizer: torch.optim.Optimizer, epochs: int):
     """Runs the selective fine-tuning process with validation."""
     print("\nStarting Training...")
     model.train()
@@ -119,7 +128,7 @@ def train_loop(model, train_dataloader, val_dataloader, loss_fn, optimizer, epoc
         losses["train"].append(avg_train_loss)
         
         # Run Validation after each epoch
-        avg_val_loss = validation_loop(model, val_dataloader, loss_fn, device)
+        avg_val_loss = validation_loop(model, val_dataloader, loss_fn)
         losses["val"].append(avg_val_loss)
 
         end_time = time.time()

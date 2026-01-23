@@ -1,6 +1,11 @@
+--extra-index-url https://pypi.nvidia.com
+cuml-cu12
+numpy<2.2
 pandas
-numpy<2
-transformers
+scikit-learn
 torch
 torchmetrics
-sklearn-dimension
+transformers
+datasets
+matplotlib
+tqdm
