@@ -6,7 +6,12 @@ echo "Go Home"
 cd $HOME/SMTB2025_solution
 
 # Embed sequences (not to be paralellized to not exceed GPU RAM)
-for model in esm_t36 ankh-large; do
-    python -m src.plm --model-name $model --data-path $BASE/datasets/binding.csv --output-path $BASE/aa_embeddings/$model/binding --aa-level
+# for model in esm_t36 ankh-large; do
+#     python -m src.plm --model-name $model --data-path $BASE/datasets/binding.csv --output-path $BASE/aa_embeddings/$model/binding --aa-level
+#     python -m src.plm --model-name $model --data-path $BASE/datasets/scope_40_208.csv --output-path $BASE/aa_embeddings/$model/scope_40_208 --aa-level
+# done
+
+for model in esmc_300m esmc_600m prott5; do
+    rm -rf $BASE/aa_embeddings/$model/scope_40_208
     python -m src.plm --model-name $model --data-path $BASE/datasets/scope_40_208.csv --output-path $BASE/aa_embeddings/$model/scope_40_208 --aa-level
 done

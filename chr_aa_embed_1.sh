@@ -16,7 +16,4 @@ python -c "import torch; print('GPU:', torch.cuda.is_available())"
 for model in esm_t6 esm_t12 esm_t30 esm_t33 esmc_600m ankh-base esmc_300m prott5 prostt5 ohe; do
     rm -rf $BASE/aa_embeddings/$model/binding
     python -m src.plm --model-name $model --data-path $BASE/datasets/binding.csv --output-path $BASE/aa_embeddings/$model/binding --aa-level
-    # conda run -n plm --no-capture-output python -m src.plm --model-name $model --data-path $BASE/datasets/scope_40_208.csv --output-path $BASE/aa_embeddings/$model/scope_40_208 --aa-level
 done
-rm -rf $BASE/aa_embeddings/prott5/scope_40_208
-python -m src.plm --model-name prott5 --data-path $BASE/datasets/scope_40_208.csv --output-path $BASE/aa_embeddings/prott5/scope_40_208 --aa-level

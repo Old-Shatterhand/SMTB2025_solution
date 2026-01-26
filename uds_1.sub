@@ -12,7 +12,7 @@ should_transfer_files = YES
 request_GPUs = 1
 request_CPUs = 32
 request_memory = 512G
-requirements = (UidDomain == "cs.uni-saarland.de") && (GPUs_GlobalMemoryMb >= 19500)
+requirements = (UidDomain == "cs.uni-saarland.de") && (GPUs_GlobalMemoryMb >= 40000)
 
 +WantGPUHomeMounted = true
 +WantScratchMounted = true
