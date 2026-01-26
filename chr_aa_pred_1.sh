@@ -18,5 +18,5 @@ python -c "import torch; print('GPU:', torch.cuda.is_available())"
 #     python -m src.downstream.aa_cuml --data-path $BASE/datasets/scope_40_208.csv --embed-base $BASE/aa_embeddings/esm_t$num/scope_40_208/ --n-classes 8 --max-layer $num
 # done
 
-python -m src.downstream.aa_cuml --data-path $BASE/datasets/scope_40_208.csv --embed-base $BASE/aa_embeddings/esm_t33/scope_40_208/ --n-classes 3 --max-layer 33
-python -m src.downstream.aa_cuml --data-path $BASE/datasets/scope_40_208.csv --embed-base $BASE/aa_embeddings/esm_t33/scope_40_208/ --n-classes 8 --max-layer 33
+python -m src.downstream.aa_cuml --data-path $BASE/datasets/scope_40_208.csv --embed-base $BASE/aa_embeddings/esm_t33/scope_40_208/ --max-layer 33 --task class --n-classes 3 --force
+python -m src.downstream.aa_cuml --data-path $BASE/datasets/scope_40_208.csv --embed-base $BASE/aa_embeddings/esm_t33/scope_40_208/ --max-layer 33 --task class --n-classes 8 --force

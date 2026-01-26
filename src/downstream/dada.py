@@ -9,8 +9,6 @@ def _compute_id_2NN(mus):
 
     Args:
         mus (np.ndarray(float)): ratio of the distances of first- and second-nearest neighbours
-        mu_fraction (float): fraction of mus to take into account, discard the highest values
-        algorithm (str): 'base' to perform the linear fit, 'ml' to perform maximum likelihood
 
     Returns:
         intrinsic_dim (float): the estimation of the intrinsic dimension
@@ -44,7 +42,7 @@ def compute_id_2NN(
         id_err (float): the standard error on the id estimation
         rs (float): the average nearest neighbor distance (rs)
     """
-    return _compute_id_2NN(distances[:, 2] / (distances[:, 1] + 1e-9) + 1e-9)
+    return _compute_id_2NN(distances[:, 2] / distances[:, 1])
 
 
 def return_data_overlap(

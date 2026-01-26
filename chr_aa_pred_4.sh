@@ -14,17 +14,17 @@ python -c "import torch; print('GPU:', torch.cuda.is_available())"
 
 # Train on ESMC model embeddings
 # python -m src.downstream.aa_cuml --data-path $BASE/datasets/binding.csv --embed-base $BASE/aa_embeddings/esmc_300m/binding/ --n-classes 2 --max-layer 30
-python -m src.downstream.aa_cuml --data-path $BASE/datasets/scope_40_208.csv --embed-base $BASE/aa_embeddings/esmc_300m/scope_40_208/ --n-classes 3 --max-layer 30
-python -m src.downstream.aa_cuml --data-path $BASE/datasets/scope_40_208.csv --embed-base $BASE/aa_embeddings/esmc_300m/scope_40_208/ --n-classes 8 --max-layer 30
+python -m src.downstream.aa_cuml --data-path $BASE/datasets/scope_40_208.csv --embed-base $BASE/aa_embeddings/esmc_300m/scope_40_208/ --max-layer 30 --task class --n-classes 3 --force
+python -m src.downstream.aa_cuml --data-path $BASE/datasets/scope_40_208.csv --embed-base $BASE/aa_embeddings/esmc_300m/scope_40_208/ --max-layer 30 --task class --n-classes 8 --force
 
 # Train on Pro(s)tT5 model embeddings
-for model in prott5; do  # prostt5 
-    # python -m src.downstream.aa_cuml --data-path $BASE/datasets/binding.csv --embed-base $BASE/aa_embeddings/$model/binding/ --n-classes 2 --max-layer 24
-    python -m src.downstream.aa_cuml --data-path $BASE/datasets/scope_40_208.csv --embed-base $BASE/aa_embeddings/$model/scope_40_208/ --n-classes 3 --max-layer 24
-    python -m src.downstream.aa_cuml --data-path $BASE/datasets/scope_40_208.csv --embed-base $BASE/aa_embeddings/$model/scope_40_208/ --n-classes 8 --max-layer 24
-done
+# for model in prott5; do  # prostt5 
+#     python -m src.downstream.aa_cuml --data-path $BASE/datasets/binding.csv --embed-base $BASE/aa_embeddings/$model/binding/ --n-classes 2 --max-layer 24
+python -m src.downstream.aa_cuml --data-path $BASE/datasets/scope_40_208.csv --embed-base $BASE/aa_embeddings/prott5/scope_40_208/ --max-layer 24 --task class --n-classes 3 --force
+python -m src.downstream.aa_cuml --data-path $BASE/datasets/scope_40_208.csv --embed-base $BASE/aa_embeddings/prott5/scope_40_208/ --max-layer 24 --task class --n-classes 8 --force
+# done
 
 # Train on one-hot encodings
 # python -m src.downstream.aa_cuml --data-path $BASE/datasets/binding.csv --embed-base $BASE/aa_embeddings/ohe/binding/ --n-classes 2 --max-layer 0
-python -m src.downstream.aa_cuml --data-path $BASE/datasets/scope_40_208.csv --embed-base $BASE/aa_embeddings/ohe/scope_40_208/ --n-classes 3 --max-layer 0
-python -m src.downstream.aa_cuml --data-path $BASE/datasets/scope_40_208.csv --embed-base $BASE/aa_embeddings/ohe/scope_40_208/ --n-classes 8 --max-layer 0
+python -m src.downstream.aa_cuml --data-path $BASE/datasets/scope_40_208.csv --embed-base $BASE/aa_embeddings/ohe/scope_40_208/ --max-layer 0 --task class --n-classes 3 --force
+python -m src.downstream.aa_cuml --data-path $BASE/datasets/scope_40_208.csv --embed-base $BASE/aa_embeddings/ohe/scope_40_208/ --max-layer 0 --task class --n-classes 8 --force
