@@ -3,30 +3,6 @@ from scipy.optimize import curve_fit
 from sklearn.metrics import matthews_corrcoef
 
 
-def _compute_id_2NN(mus: np.ndarray) -> float:
-    """
-    Compute the id using the 2NN algorithm.
-    Helper of return return_id_2NN.
-    Based on the implementation from DADApy
-
-    Args:
-        mus (np.ndarray(float)): ratio of the distances of first- and second-nearest neighbours
-
-    Returns:
-        intrinsic_dim (float): the estimation of the intrinsic dimension
-    """
-    N = mus.shape[0]
-    n_eff = int(N * 0.9)
-    log_mus_reduced = np.sort(np.log(mus))[:n_eff]
-
-    y = -np.log(1 - np.arange(1, n_eff + 1) / N)
-
-    def func(x, m):
-        return m * x
-
-    return curve_fit(func, log_mus_reduced, y)[0][0]
-
-
 def compute_id_2NN(distances: np.ndarray) -> float:
     """Compute intrinsic dimension using the 2NN algorithm.
     Based on the implementation from DADApy
@@ -41,8 +17,18 @@ def compute_id_2NN(distances: np.ndarray) -> float:
     Returns:
         intrinsic_dim (float): the estimated intrinsic dimension
     """
-    with np.errstate(divide='ignore', invalid='ignore'):
-        return _compute_id_2NN(distances[:, 2] / distances[:, 1])
+    # with np.errstate(divide='ignore', invalid='ignore'):
+    mus = distances[:, 2] / distances[:, 1]
+    N = mus.shape[0]
+    n_eff = int(N * 0.9)
+    log_mus_reduced = np.sort(np.log(mus))[:n_eff]
+
+    y = -np.log(1 - np.arange(1, n_eff + 1) / N)
+
+    def func(x, m):
+        return m * x
+
+    return curve_fit(func, log_mus_reduced, y)[0][0]
 
 
 def return_data_overlap(dist_indices_base: np.ndarray, dist_indices_other: np.ndarray, k: int = 10) -> np.float32:

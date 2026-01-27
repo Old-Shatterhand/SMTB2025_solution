@@ -18,7 +18,7 @@ import pandas as pd
 from cuml import PCA
 from cuml.neighbors import KNeighborsClassifier as kNN_class, KNeighborsRegressor as kNN_reg
 
-from src.downstream.dada import compute_id_2NN, return_data_overlap
+from src.downstream.utils import compute_id_2NN, return_data_overlap
 
 
 N_ROWS = 300
@@ -168,9 +168,14 @@ def knn(
 
     if not (r_file := (out_folder / f"predictions_knn_{suffix}.pkl")).exists() or force:
         print("Evaluating kNN model")
-        train_preds = knn.predict(train_X)
-        val_preds = knn.predict(val_X)
-        test_preds = knn.predict(test_X)
+        if task == "regression":
+            train_preds = knn.predict(train_X)
+            val_preds = knn.predict(val_X)
+            test_preds = knn.predict(test_X)
+        else:
+            train_preds = knn.predict(train_X)
+            val_preds = knn.predict(val_X)
+            test_preds = knn.predict(test_X)
 
         with open(r_file, "wb") as f:
             pickle.dump(((train_preds, train_y), (val_preds, val_y), (test_preds, test_y)), f)
@@ -219,9 +224,14 @@ def train_lr_head(
         model = MultiOutputClassifier(cuml.LogisticRegression(output_type="numpy"), n_jobs=1).fit(train_X[perm], train_y[perm].reshape(-1, 1))
 
     print("Evaluating LR model")
-    train_preds = model.predict_proba(train_X)
-    val_preds = model.predict_proba(val_X)
-    test_preds = model.predict_proba(test_X)
+    if task == "regression":
+        train_preds = model.predict(train_X)
+        val_preds = model.predict(val_X)
+        test_preds = model.predict(test_X)
+    else:
+        train_preds = model.predict_proba(train_X)
+        val_preds = model.predict_proba(val_X)
+        test_preds = model.predict_proba(test_X)
 
     with open(r_file, "wb") as f:
         pickle.dump(((train_preds, train_y), (val_preds, val_y), (test_preds, test_y)), f)
@@ -319,17 +329,18 @@ def main(args):
     for layer in range(args.max_layer + 1):
         print(f"[{time() - start:.2f}s] Processing layer {layer} ...")
         result_folder = base_result_folder / f"layer_{layer}"
+        print(f"[{time() - start:.2f}s] Result folder: {result_folder}")
         
         # Compute 2NN ID
-        if 'id' in calcs and (not (r_file := (result_folder / f"ids_{space_suffix}.csv")).exists() or args.force):
-            twonn_id = compute_id_2NN(curr_distances)
-            print(f"[{time() - start:.2f}s] Layer {layer}: 2NN ID = {twonn_id}")
-            pd.DataFrame({
-                "twonn_id": [twonn_id],
-            }).to_csv(r_file, index=False)
+        # if 'id' in calcs and (not (r_file := (result_folder / f"ids_{space_suffix}.csv")).exists() or args.force):
+        #     twonn_id = compute_id_2NN(curr_distances)
+        #     print(f"[{time() - start:.2f}s] Layer {layer}: 2NN ID = {twonn_id}")
+        #     pd.DataFrame({
+        #         "twonn_id": [twonn_id],
+        #     }).to_csv(r_file, index=False)
 
+        # calculate PCA and PCA-induced volume
         if 'pca' in calcs and (not (r_file := (result_folder / f"pca_{space_suffix}.pkl")).exists() or args.force):
-            # calculate PCA and PCA-induced volume
             pca = PCA(svd_solver='auto').fit(curr_train_X)
             print(f"[{time() - start:.2f}s] Layer {layer}: PCA computed.")
             with open(r_file, "wb") as f:
