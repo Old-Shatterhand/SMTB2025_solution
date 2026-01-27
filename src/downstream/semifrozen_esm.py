@@ -3,7 +3,7 @@ import time
 import pickle
 import argparse
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import torch
 import numpy as np
@@ -22,8 +22,17 @@ ESM_MODELS = {
 }
 EARLY_STOPPING_PATIENCE = 10
 
-class HalfFrozenESM(torch.nn.Module):
+class SemiFrozenESM(torch.nn.Module):
     def __init__(self, esm_name: str, unfreeze: slice, n_outputs: int = 1, output_logits: bool = False):
+        """
+        Initializes the SemiFrozenESM model.
+
+        Args:
+            esm_name: Name of the pre-trained ESM model.
+            unfreeze: Slice object indicating which layers to unfreeze.
+            n_outputs: Number of output neurons for the regression/classification head.
+            output_logits: If True, applies sigmoid activation to the output.
+        """
         super().__init__()
         self.esm = AutoModel.from_pretrained(esm_name)
         # if unfreeze.start < 0 or unfreeze.start >= self.esm.config.num_hidden_layers or unfreeze.stop < 0 or unfreeze.stop > self.esm.config.num_hidden_layers:
@@ -38,11 +47,14 @@ class HalfFrozenESM(torch.nn.Module):
     
     def forward(self, input_ids: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
         """
-        Forward pass through the HalfFrozenESM model.
+        Forward pass through the SemiFrozenESM model.
         
         Args:
             input_ids: Tensor of input token IDs.
             attention_mask: Tensor indicating which tokens should be attended to.
+        
+        Returns:
+            Output tensor after passing through the model and head.
         """
         outputs = self.esm(input_ids=input_ids, attention_mask=attention_mask)
         pooled_output = outputs.last_hidden_state[:, 1:-1, :].mean(dim=1)  # CLS token
@@ -52,14 +64,14 @@ class HalfFrozenESM(torch.nn.Module):
 
 class ProteinDataset(Dataset):
     """A dummy dataset of protein sequences and target regression values."""
-    def __init__(self, sequences, targets):
+    def __init__(self, sequences: list[str], targets: list[float]):
         self.sequences = sequences
         self.targets = targets
 
     def __len__(self):
         return len(self.sequences)
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx: int) -> tuple[str, float]:
         return self.sequences[idx], self.targets[idx]
 
 
@@ -77,7 +89,7 @@ def collate_fn(tokenizer, batch):
     return tokenized.to(DEVICE), targets.to(DEVICE)
 
 
-def validation_loop(model: torch.nn.Module, dataloader: torch.utils.data.DataLoader, loss_fn: torch.nn.Module):
+def validation_loop(model: torch.nn.Module, dataloader: torch.utils.data.DataLoader, loss_fn: torch.nn.Module) -> float:
     """Runs the validation process and calculates average loss."""
     model.eval()
     val_loss, samples = 0, 0
@@ -96,7 +108,14 @@ def validation_loop(model: torch.nn.Module, dataloader: torch.utils.data.DataLoa
     return avg_val_loss
 
 
-def train_loop(model: torch.nn.Module, train_dataloader: torch.utils.data.DataLoader, val_dataloader: torch.utils.data.DataLoader, loss_fn: torch.nn.Module, optimizer: torch.optim.Optimizer, epochs: int):
+def train_loop(
+        model: torch.nn.Module, 
+        train_dataloader: torch.utils.data.DataLoader, 
+        val_dataloader: torch.utils.data.DataLoader, 
+        loss_fn: torch.nn.Module, 
+        optimizer: torch.optim.Optimizer, 
+        epochs: int
+    ) -> tuple[dict[str, Any], dict[str, list[float]]]:
     """Runs the selective fine-tuning process with validation."""
     print("\nStarting Training...")
     model.train()
@@ -147,8 +166,17 @@ def train_loop(model: torch.nn.Module, train_dataloader: torch.utils.data.DataLo
     return best_model_state, losses
 
 
-def predict(model, dataloader):
-    """Generates predictions for the given dataloader."""
+def predict(model: torch.nn.Module, dataloader: torch.utils.data.DataLoader) -> tuple[list, list]:
+    """
+    Generates predictions for the given dataloader.
+    
+    Args:
+        model: The trained model.
+        dataloader: DataLoader for the dataset to predict on.
+    
+    Returns:
+        A tuple containing lists of predictions and true labels.
+    """
     model.eval()
     predictions, labels = [], []
 
@@ -164,7 +192,15 @@ def predict(model, dataloader):
     return predictions, labels
 
 
-def routine(data_path: Path, out_folder: Path, model_name: str, unfreeze: tuple, task: Literal["regression", "binary", "classification"], force: bool = False, lr=1e-4):
+def routine(
+        data_path: Path, 
+        out_folder: Path, 
+        model_name: str, 
+        unfreeze: tuple[int, int], 
+        task: Literal["regression", "binary", "class"], 
+        force: bool = False, 
+        lr: float = 1e-4
+    ):
     out_folder.mkdir(parents=True, exist_ok=True)
     loss_file = out_folder / f"loss_unfrozen_{model_name}_{unfreeze[0]}_{unfreeze[1]}_{lr}.csv"
     result_file = out_folder / f"predictions_unfrozen_{model_name}_{unfreeze[0]}_{unfreeze[1]}_{lr}.pkl"
@@ -211,8 +247,10 @@ if __name__ == "__main__":
     parser.add_argument("--data-path", type=Path, required=True, help="Path to the CSV file containing the dataset.")
     parser.add_argument("--out-folder", type=Path, required=True, help="Output folder to save results.")
     parser.add_argument("--model-name", type=str, required=True, help="Name of the ESM model to use.")
-    parser.add_argument("--unfreeze", type=int, nargs=2, required=True, help="Slice indices to unfreeze layers, e.g., --unfreeze 0 6 to unfreeze first 6 layers.")
-    parser.add_argument("--task", type=str, choices=["regression", "binary", "classification"], required=True, help="Type of prediction task.")
+    parser.add_argument("--unfreeze", type=int, nargs=2, required=True, 
+                        help="Slice indices to unfreeze layers, e.g., --unfreeze 0 6 to unfreeze first 6 layers, "
+                        "or --unfreeze 6 6 to keep ESM2-t6 completely frozen.")
+    parser.add_argument("--task", type=str, choices=["regression", "binary", "class"], required=True, help="Type of prediction task.")
     parser.add_argument("--force", action="store_true", help="Force re-computation even if results exist.")
     parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate for optimizer.")
     args = parser.parse_args()

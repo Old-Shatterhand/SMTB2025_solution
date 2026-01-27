@@ -1,54 +1,78 @@
-from pathlib import Path
-import pickle
-
 import numpy as np
-import pandas as pd
-import sklearn
+from scipy.optimize import curve_fit
 from sklearn.metrics import matthews_corrcoef
-from sklearn.multioutput import MultiOutputClassifier
-from sklearn.linear_model import LinearRegression, LogisticRegression
-from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
-from xgboost import XGBRegressor
 
 
-def build_dataloader(df: pd.DataFrame, embed_path: Path, labels: str | list[str] | None = "label", shuffle: bool = True) -> tuple[np.ndarray, np.ndarray | None]:
+def _compute_id_2NN(mus: np.ndarray) -> float:
     """
-    Build a DataLoader for the given DataFrame and embedding path.
+    Compute the id using the 2NN algorithm.
+    Helper of return return_id_2NN.
+    Based on the implementation from DADApy
 
     Args:
-        df: DataFrame containing the data.
-        embed_path: Path to the directory containing the embeddings.
-        labels: Column name(s) for the target labels.
+        mus (np.ndarray(float)): ratio of the distances of first- and second-nearest neighbours
 
     Returns:
-        Tuple of (inputs, targets) where inputs are the embeddings and targets are the labels.
+        intrinsic_dim (float): the estimation of the intrinsic dimension
     """
-    embed_path = Path(embed_path)
-    embeddings = []
-    valid_ids = set()
-    for idx in df["ID"].values:
-        try:
-            with open(embed_path / f"{idx}.pkl", "rb") as f:
-                tmp = pickle.load(f)
-            if not isinstance(tmp, np.ndarray):
-                tmp = tmp.cpu().numpy()
-            embeddings.append(tmp)
-            valid_ids.add(idx)
-        except Exception:
-            pass
-    
-    inputs = np.stack(embeddings)
-    if shuffle:
-        permut = np.random.permutation(inputs.shape[0])
-        inputs = inputs[permut]
+    N = mus.shape[0]
+    n_eff = int(N * 0.9)
+    log_mus_reduced = np.sort(np.log(mus))[:n_eff]
 
-    if labels is not None:
-        targets = np.array(df[df["ID"].isin(valid_ids)][labels].values).astype(np.float32)
-        if shuffle:
-            targets = targets[permut]
-        return inputs, targets
-    else:
-        return inputs, None
+    y = -np.log(1 - np.arange(1, n_eff + 1) / N)
+
+    def func(x, m):
+        return m * x
+
+    return curve_fit(func, log_mus_reduced, y)[0][0]
+
+
+def compute_id_2NN(distances: np.ndarray) -> float:
+    """Compute intrinsic dimension using the 2NN algorithm.
+    Based on the implementation from DADApy
+
+    Args:
+        algorithm (str): 'base' to perform the linear fit, 'ml' to perform maximum likelihood
+        mu_fraction (float): fraction of mus that will be considered for the estimate (discard highest mus)
+        data_fraction (float): fraction of randomly sampled points used to compute the id
+        n_iter (int): number of times the ID is computed on data subsets (useful when decimation < 1)
+        set_attr (bool): whether to change the class attributes as a result of the computation
+
+    Returns:
+        intrinsic_dim (float): the estimated intrinsic dimension
+    """
+    with np.errstate(divide='ignore', invalid='ignore'):
+        return _compute_id_2NN(distances[:, 2] / distances[:, 1])
+
+
+def return_data_overlap(dist_indices_base: np.ndarray, dist_indices_other: np.ndarray, k: int = 10) -> np.float32:
+    """
+    Compute the data overlap between two distance index matrices.
+    Based on the implementation from DADApy
+
+    Args:
+        dist_indices_base (np.ndarray): distance indices matrix for the base data
+        dist_indices_other (np.ndarray): distance indices matrix for the other data
+        k (int): number of nearest neighbors to consider for overlap computation
+
+    Returns:
+        overlap (float): average data overlap between the two datasets
+    """
+    assert dist_indices_base.shape[0] == dist_indices_other.shape[0]
+    ndata = dist_indices_base.shape[0]
+
+    overlaps = -np.ones(ndata)
+    for i in range(ndata):
+        overlaps[i] = (
+            len(
+                np.intersect1d(
+                    dist_indices_base[i, 1 : k + 1],
+                    dist_indices_other[i, 1 : k + 1],
+                )
+            )
+            / k
+        )
+    return np.mean(overlaps)
 
 
 def multioutput_mcc(y_true: np.ndarray, y_pred: np.ndarray) -> float:
@@ -77,30 +101,3 @@ def multioutput_mcc(y_true: np.ndarray, y_pred: np.ndarray) -> float:
         mccs.append(mcc)
     
     return float(np.mean(mccs))
-
-
-def fit_model(task: str, algo: str, trainX: np.ndarray, trainY: np.ndarray, binary: bool = False) -> sklearn.base.BaseEstimator:
-    """
-    Fit a machine learning model based on the specified task and algorithm.
-
-    Args:
-        task: "regression" or "classification"
-        algo: Algorithm to use ("lr", "knn")
-        trainX: Training features
-        trainY: Training labels
-        binary: Indicator for binary classification (only relevant if task is "classification")
-    """
-    if task == "regression":
-        if algo == "lr":
-            return LinearRegression(n_jobs=1).fit(trainX, trainY)
-        elif algo == "knn":
-            return KNeighborsRegressor(n_neighbors=5, weights="distance", algorithm="brute", metric="cosine", n_jobs=1).fit(trainX, trainY)
-    else:
-        if algo == "lr":
-            if binary:
-                return LogisticRegression(n_jobs=1).fit(trainX, trainY)
-            else:
-                return MultiOutputClassifier(LogisticRegression(n_jobs=1), n_jobs=1).fit(trainX, trainY)
-        elif algo == "knn":
-            return KNeighborsClassifier(n_neighbors=5, weights="distance", algorithm="brute", metric="cosine", n_jobs=1).fit(trainX, trainY)
-    raise ValueError(f"Unknown task: {task} or algorithm: {algo}")
