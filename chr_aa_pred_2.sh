@@ -12,11 +12,11 @@ python -c "import cuml; print('CuML installed successfully.')"
 python -c "import torch; print('GPU:', torch.cuda.is_available())"
 
 {
-    # echo "conda run -n plm --no-capture-output python -m src.downstream.aa_cuml --data-path $BASE/datasets/binding.csv --embed-base $BASE/aa_embeddings/esm_t36/binding/ --n-classes 2 --max-layer $num"
-    # echo "conda run -n plm --no-capture-output python -m src.downstream.aa_cuml --data-path $BASE/datasets/scope_40_208.csv --embed-base $BASE/aa_embeddings/esm_t36/scope_40_208/ --n-classes 3 --max-layer $num"
-    # echo "conda run -n plm --no-capture-output python -m src.downstream.aa_cuml --data-path $BASE/datasets/scope_40_208.csv --embed-base $BASE/aa_embeddings/esm_t36/scope_40_208/ --n-classes 8 --max-layer $num"
+    python -m src.downstream.aa_cuml --data-path $BASE/datasets/binding.csv --embed-base $BASE/aa_embeddings/esm_t36/binding/ --max-layer 36 --task binary --n-classes 2 --force
+    python -m src.downstream.aa_cuml --data-path $BASE/datasets/scope_40_208.csv --embed-base $BASE/aa_embeddings/esm_t36/scope_40_208/ --max-layer 36 --task class --n-classes 3 --force
+    python -m src.downstream.aa_cuml --data-path $BASE/datasets/scope_40_208.csv --embed-base $BASE/aa_embeddings/esm_t36/scope_40_208/ --max-layer 36 --task class --n-classes 8 --force
 
-    # echo "conda run -n plm --no-capture-output python -m src.downstream.aa_cuml --data-path $BASE/datasets/binding.csv --embed-base $BASE/aa_embeddings/ankh-large/binding/ --n-classes 2 --max-layer 48"
-    # echo "conda run -n plm --no-capture-output python -m src.downstream.aa_cuml --data-path $BASE/datasets/scope_40_208.csv --embed-base $BASE/aa_embeddings/ankh-large/scope_40_208/ --n-classes 3 --max-layer 48"
-    # echo "conda run -n plm --no-capture-output python -m src.downstream.aa_cuml --data-path $BASE/datasets/scope_40_208.csv --embed-base $BASE/aa_embeddings/ankh-large/scope_40_208/ --n-classes 8 --max-layer 48"
+    python -m src.downstream.aa_cuml --data-path $BASE/datasets/binding.csv --embed-base $BASE/aa_embeddings/ankh-large/binding/ --max-layer 48 --task binary --n-classes 2 --force
+    python -m src.downstream.aa_cuml --data-path $BASE/datasets/scope_40_208.csv --embed-base $BASE/aa_embeddings/ankh-large/scope_40_208/ --max-layer 48 --task class --n-classes 3 --force
+    python -m src.downstream.aa_cuml --data-path $BASE/datasets/scope_40_208.csv --embed-base $BASE/aa_embeddings/ankh-large/scope_40_208/ --max-layer 48 --task class --n-classes 8 --force
 } | xargs -P $NCORES -I {} bash -c "{}"

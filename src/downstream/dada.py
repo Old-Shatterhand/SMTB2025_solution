@@ -42,7 +42,8 @@ def compute_id_2NN(
         id_err (float): the standard error on the id estimation
         rs (float): the average nearest neighbor distance (rs)
     """
-    return _compute_id_2NN(distances[:, 2] / distances[:, 1])
+    with np.errstate(divide='ignore', invalid='ignore'):
+        return _compute_id_2NN(distances[:, 2] / distances[:, 1])
 
 
 def return_data_overlap(
