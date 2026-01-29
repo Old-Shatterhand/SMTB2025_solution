@@ -1,11 +1,12 @@
+import pickle
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Literal
 
-from matplotlib import pyplot as plt
+import scipy
 import numpy as np
 import pandas as pd
 from scipy.stats import spearmanr
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score, matthews_corrcoef, roc_auc_score, accuracy_score
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score, matthews_corrcoef, roc_auc_score
 
 from src.viz.constants import MODEL_COLORS, MODELS, SPLIT_ID, LAYERS
 from src.downstream.utils import multioutput_mcc
@@ -162,6 +163,54 @@ def read_metric(
         return 0
     df = pd.read_csv(filepath)
     return df[name_map[metric]].values[0]
+
+
+def read_pca_metric(
+        root: Path | None, 
+        model: str | None, 
+        dataset: str | None, 
+        layer: int | None, 
+        metric: Literal["zero", "pc@95", "var@10", "5dvol"], 
+        filepath: Path | None = None,
+        k: int = 5,
+    ) -> float:
+    """
+    Read a specific metric from a CSV file for the given model, dataset, and layer.
+
+    Args:
+        root: Root directory containing the embeddings and results. [path parameter]
+        model: Name of the model. [path parameter]
+        dataset: Name of the dataset. [path parameter]
+        layer: Layer number. [path parameter]
+        metric: Metric to read ("zero", "pc@95", "var@10", "5dvol").
+        filepath: Optional path to the CSV file. If None, constructs the path. This overwrites the other path parameters.
+        aa: Whether to use amino acid level embeddings.
+        n_classes: Number of classes for classification tasks. Only used for aa-tasks.
+    
+    Returns:
+        The value of the specified metric.
+    """
+    if filepath is None:
+        filepath = root / "embeddings" / model / dataset / f"layer_{layer}" / "pca_10.pkl"
+    if not filepath.exists():
+        return 0
+    
+    with open(filepath, "rb") as f:
+        exp_var = pickle.load(f)
+    zero_index = next(i for i, v in enumerate(exp_var) if np.isclose(v, 0))
+    
+    if metric == "zero":
+        return zero_index
+    
+    exp_var = exp_var[:zero_index]
+    if metric == "pc@95":
+        return next(i for i, v in enumerate(np.cumsum(exp_var) / sum(exp_var)) if v >= 0.95)
+    elif metric == "var@10":
+        return (np.cumsum(exp_var) / sum(exp_var))[10]
+    elif metric == "5dvol":
+        return (np.pi ** (k / 2)) / scipy.special.gamma((k / 2) + 1) * np.prod(exp_var[:k])
+    else:
+        raise ValueError(f"Unknown metric: {metric}")
 
 
 def plot_metric(

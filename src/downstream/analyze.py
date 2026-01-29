@@ -136,7 +136,7 @@ def knn(
         test_y: np.ndarray, 
         perm: np.ndarray,
         n_neighbors: int = 10,
-        task: Literal["regression", "binary", "class"] = "binary",
+        task: Literal["regression", "binary", "multi-class", "multi-label"] = "binary",
         suffix: str = "",
         force: bool = False,
     ) -> tuple[np.ndarray, np.ndarray]:
@@ -154,7 +154,7 @@ def knn(
         perm (np.ndarray): Permutation of training indices for shuffling.
         n_classes (int): Number of classes.
         n_neighbors (int): Number of neighbors for kNN.
-        task: Type of task: "regression", "binary", or "class".
+        task: Type of task: "regression", "binary", "multi-class", or "multi-label".
         suffix (str): Suffix for output files.
         force (bool): Whether to force retraining even if predictions exist.
     
@@ -208,7 +208,7 @@ def train_lr_head(
         test_X (np.ndarray): Test features.
         test_y (np.ndarray): Test labels.
         perm (np.ndarray): Permutation of training indices for shuffling.
-        task: Type of task: "regression", "binary", or "class".
+        task: Type of task: "regression", "binary", "multi-class", or "multi-label".
         suffix (str): Suffix for output files.
         force (bool): Whether to force retraining even if predictions exist.
     """
@@ -220,8 +220,10 @@ def train_lr_head(
         model = cuml.LinearRegression(output_type="numpy").fit(train_X[perm], train_y[perm])
     elif task == "binary":
         model = cuml.LogisticRegression(output_type="numpy").fit(train_X[perm], train_y[perm])
-    else:
+    elif task == "multi-class":
         model = MultiOutputClassifier(cuml.LogisticRegression(output_type="numpy"), n_jobs=1).fit(train_X[perm], train_y[perm].reshape(-1, 1))
+    elif task == "multi-label":
+        model = MultiOutputClassifier(cuml.LogisticRegression(output_type="numpy"), n_jobs=1).fit(train_X[perm], train_y[perm])
 
     print("Evaluating LR model")
     if task == "regression":
@@ -400,7 +402,8 @@ def main(args):
         # save the distance indices for next Neighborhood Overlap computation
         if {'knn', 'id', 'no'}.intersection(calcs):
             curr_dist_indices = copy.deepcopy(next_dist_indices)
-            curr_distances = copy.deepcopy(next_distances)
+            # curr_distances = copy.deepcopy(next_distances)
+            curr_train_X = copy.deepcopy(next_train_X)
 
 
 if __name__ == "__main__":
@@ -410,7 +413,7 @@ if __name__ == "__main__":
     parser.add_argument('--max-layer', type=int, required=True)
     parser.add_argument('--k', type=int, default=10, 
                         help='Number of neighbors for all neighbor-based computations')
-    parser.add_argument('--task', type=str, default='classification', choices=['regression', 'binary', 'class'], 
+    parser.add_argument('--task', type=str, default='multi-class', choices=['regression', 'binary', 'multi-class', 'multi-label'], 
                         help='Type of prediction task.') 
     parser.add_argument('--level', type=str, default=None, choices=["superfamily", "fold"], 
                         help='Level of SCOPe hierarchy to consider. ' \
@@ -421,7 +424,7 @@ if __name__ == "__main__":
     parser.add_argument('--min', type=int, default=None, 
                         help="Minimum number of samples for a label to be included. " \
                         "Only used for SCOPe fold/superfamily prediction, mutually exclusive with --top.")
-    parser.add_argument('--n-classes', type=int, default=None, choices=[2, 3, 8], 
+    parser.add_argument('--n-classes', type=int, default=None, 
                         help='Number of classes to consider. Only for amino-acid level prediction tasks.')
     parser.add_argument('--calcs', nargs='+', default=['lr', 'knn', 'id', 'no', 'pca'], 
                         choices=['lr', 'knn', 'id', 'no', 'pca'], help='Calculations to perform. Choices are '
