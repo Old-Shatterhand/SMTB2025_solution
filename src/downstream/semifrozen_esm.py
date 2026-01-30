@@ -43,7 +43,7 @@ class SemiFrozenESM(torch.nn.Module):
         # Freeze layers according to the unfreeze slice by setting requires_grad
         for i in range(0, self.esm.config.num_hidden_layers):
             for param in self.esm.encoder.layer[i].parameters():
-                param.requires_grad = i not in range(unfreeze.start, unfreeze.stop)
+                param.requires_grad = i in range(unfreeze.start, unfreeze.stop)
     
     def forward(self, input_ids: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
         """
@@ -224,14 +224,14 @@ def routine(
     test_dataloader = DataLoader(test_dataset, batch_size=32, shuffle=False, collate_fn=lambda batch: collate_fn(tokenizer, batch))
 
     tokenizer = AutoTokenizer.from_pretrained(ESM_MODELS[model_name])
-    model = HalfFrozenESM(ESM_MODELS[model_name], unfreeze=slice(*unfreeze)).to(DEVICE)
+    model = SemiFrozenESM(ESM_MODELS[model_name], unfreeze=slice(*unfreeze)).to(DEVICE)
     optimizer = torch.optim.AdamW([
         {'params': list(filter(lambda p: p.requires_grad, model.parameters())), 'lr': lr}
     ])
     loss_fn = (lambda preds, targets: torch.sqrt(torch.nn.MSELoss()(preds, targets))) if task == "regression" else torch.nn.BCEWithLogitsLoss() if task == "binary" else torch.nn.CrossEntropyLoss()
     torch.manual_seed(42)
 
-    best_model_state, losses = train_loop(model, train_dataloader, valid_dataloader, loss_fn, optimizer, epochs=100, device=DEVICE)
+    best_model_state, losses = train_loop(model, train_dataloader, valid_dataloader, loss_fn, optimizer, epochs=100)
     model.load_state_dict(best_model_state)
     train_predictions, train_labels = predict(model, train_dataloader)
     valid_predictions, valid_labels = predict(model, valid_dataloader)
