@@ -35,15 +35,20 @@ class SemiFrozenESM(torch.nn.Module):
         """
         super().__init__()
         self.esm = AutoModel.from_pretrained(esm_name)
+        n_layers = self.esm.config.num_hidden_layers
+        start = 0 if unfreeze.start is None else unfreeze.start
+        stop = n_layers if unfreeze.stop is None else unfreeze.stop
         # if unfreeze.start < 0 or unfreeze.start >= self.esm.config.num_hidden_layers or unfreeze.stop < 0 or unfreeze.stop > self.esm.config.num_hidden_layers:
         #     raise ValueError(f"unFreeze slice is out of bounds for {esm_name}. The limits are [0, {self.esm.config.num_hidden_layers}]")
         self.head = torch.nn.Linear(self.esm.config.hidden_size, n_outputs)
         self.output_logits = output_logits
 
-        # Freeze layers according to the unfreeze slice by setting requires_grad
-        for i in range(0, self.esm.config.num_hidden_layers):
+        # Unfreeze layers according to the unfreeze slice by setting requires_grad
+        for param in self.esm.parameters(): # first freeze all
+            param.requires_grad = False
+        for i in range(0, self.esm.config.num_hidden_layers): # now unfreeze selected
             for param in self.esm.encoder.layer[i].parameters():
-                param.requires_grad = i in range(unfreeze.start, unfreeze.stop)
+                param.requires_grad = i in range(start, stop)
     
     def forward(self, input_ids: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
         """
@@ -57,25 +62,25 @@ class SemiFrozenESM(torch.nn.Module):
             Output tensor after passing through the model and head.
         """
         outputs = self.esm(input_ids=input_ids, attention_mask=attention_mask)
-        pooled_output = outputs.last_hidden_state[:, 1:-1, :].mean(dim=1)  # CLS token
+        pooled_output = outputs.last_hidden_state[:, 1:-1, :].mean(dim=1)  # mean pooling
         out = self.head(pooled_output)
         return out if not self.output_logits else torch.sigmoid(out)
 
 
 class ProteinDataset(Dataset):
     """A dummy dataset of protein sequences and target regression values."""
-    def __init__(self, sequences: list[str], targets: list[float]):
+    def __init__(self, sequences: list[str], targets):
         self.sequences = sequences
         self.targets = targets
 
     def __len__(self):
         return len(self.sequences)
 
-    def __getitem__(self, idx: int) -> tuple[str, float]:
+    def __getitem__(self, idx: int):
         return self.sequences[idx], self.targets[idx]
 
 
-def collate_fn(tokenizer, batch):
+def collate_fn(tokenizer, batch, task: str):
     """Custom collate function for tokenization and batching."""
     sequences, targets = zip(*batch)
     # Tokenize the batch, ensuring padding and truncation
@@ -84,8 +89,10 @@ def collate_fn(tokenizer, batch):
                           padding=True,
                           truncation=True,
                           max_length=128)
-    # The targets are converted to a float tensor
-    targets = torch.tensor(targets, dtype=torch.float32).unsqueeze(1) # [B, 1]
+    if task == "class":
+        targets = torch.tensor(np.stack(targets), dtype=torch.float32) # [B, C]
+    else: # regression or binary
+        targets = torch.tensor(targets, dtype=torch.float32).unsqueeze(1)  # [B,1]
     return tokenized.to(DEVICE), targets.to(DEVICE)
 
 
@@ -125,6 +132,7 @@ def train_loop(
     epochs_without_improvement = 0
 
     for epoch in range(epochs):
+        model.train()
         train_loss, samples = 0, 0
         start_time = time.time()
 
@@ -186,8 +194,8 @@ def predict(model: torch.nn.Module, dataloader: torch.utils.data.DataLoader) -> 
                 pred = model(input_ids=batch['input_ids'], attention_mask=batch['attention_mask'])
             else:
                 pred = model(batch)
-            predictions.extend(pred.squeeze().cpu().numpy())
-            labels.extend(targets.squeeze().cpu().numpy())
+            predictions.extend(pred.detach().cpu().tolist())
+            labels.extend(targets.detach().cpu().tolist())
 
     return predictions, labels
 
@@ -196,39 +204,72 @@ def routine(
         data_path: Path, 
         out_folder: Path, 
         model_name: str, 
-        unfreeze: tuple[int, int], 
+        unfreeze: tuple[int, int | None],
         task: Literal["regression", "binary", "class"], 
         force: bool = False, 
         lr: float = 1e-4
     ):
     out_folder.mkdir(parents=True, exist_ok=True)
-    loss_file = out_folder / f"loss_unfrozen_{model_name}_{unfreeze[0]}_{unfreeze[1]}_{lr}.csv"
-    result_file = out_folder / f"predictions_unfrozen_{model_name}_{unfreeze[0]}_{unfreeze[1]}_{lr}.pkl"
+    unf_tag = f"{unfreeze[0]}_{unfreeze[1] if unfreeze[1] is not None else 'end'}"
+    loss_file = out_folder / f"loss_unfrozen_{model_name}_{unf_tag}_{lr}.csv"
+    result_file = out_folder / f"predictions_unfrozen_{model_name}_{unf_tag}_{lr}.pkl"
     if not force and result_file.exists() and loss_file.exists():
         print("Results already exist.")
         return
     
     data = pd.read_csv(data_path)
+    if task == "class":
+        non_label_cols = {"ID", "id", "sequence", "split"}
+        label_cols = [c for c in data.columns if c not in non_label_cols]
     if task == "regression":
         labels = data[data["split"] == "valid"]["label"].values
         pred = np.full_like(labels, np.mean(data[data["split"] == "train"]["label"].values))
         print(f"Baseline MSE (mean predictor) on validation set: {np.sqrt(np.mean((labels - pred)**2)):.4f}")
 
-    train_dataset = ProteinDataset(data[data["split"] == "train"]["sequence"].to_list(), data[data["split"] == "train"]["label"].to_list())
-    train_dataloader = DataLoader(train_dataset, batch_size=32, shuffle=True, collate_fn=lambda batch: collate_fn(tokenizer, batch))
-
-    valid_dataset = ProteinDataset(data[data["split"] == "valid"]["sequence"].to_list(), data[data["split"] == "valid"]["label"].to_list())
-    valid_dataloader = DataLoader(valid_dataset, batch_size=32, shuffle=False, collate_fn=lambda batch: collate_fn(tokenizer, batch))
-
-    test_dataset = ProteinDataset(data[data["split"] == "test"]["sequence"].to_list(), data[data["split"] == "test"]["label"].to_list())
-    test_dataloader = DataLoader(test_dataset, batch_size=32, shuffle=False, collate_fn=lambda batch: collate_fn(tokenizer, batch))
-
     tokenizer = AutoTokenizer.from_pretrained(ESM_MODELS[model_name])
-    model = SemiFrozenESM(ESM_MODELS[model_name], unfreeze=slice(*unfreeze)).to(DEVICE)
+
+    if task == "class":
+        # targets are vectors 
+        y_train = data[data["split"] == "train"][label_cols].values.astype(np.float32)
+        y_valid = data[data["split"] == "valid"][label_cols].values.astype(np.float32)
+        y_test  = data[data["split"] == "test"][label_cols].values.astype(np.float32)
+
+        train_dataset = ProteinDataset(
+            data[data["split"] == "train"]["sequence"].to_list(),
+            list(y_train)
+        )
+        valid_dataset = ProteinDataset(
+            data[data["split"] == "valid"]["sequence"].to_list(),
+            list(y_valid)
+        )
+        test_dataset = ProteinDataset(
+            data[data["split"] == "test"]["sequence"].to_list(),
+            list(y_test)
+        )
+    else:
+        train_dataset = ProteinDataset(
+            data[data["split"] == "train"]["sequence"].to_list(),
+            data[data["split"] == "train"]["label"].to_list()
+        )
+        valid_dataset = ProteinDataset(
+            data[data["split"] == "valid"]["sequence"].to_list(),
+            data[data["split"] == "valid"]["label"].to_list()
+        )
+        test_dataset = ProteinDataset(
+            data[data["split"] == "test"]["sequence"].to_list(),
+            data[data["split"] == "test"]["label"].to_list()
+        )
+
+    train_dataloader = DataLoader(train_dataset, batch_size=32, shuffle=True, collate_fn=lambda batch: collate_fn(tokenizer, batch, task))
+    valid_dataloader = DataLoader(valid_dataset, batch_size=32, shuffle=False, collate_fn=lambda batch: collate_fn(tokenizer, batch, task))
+    test_dataloader = DataLoader(test_dataset, batch_size=32, shuffle=False, collate_fn=lambda batch: collate_fn(tokenizer, batch, task))
+
+    n_outputs = len(label_cols) if task == "class" else 1
+    model = SemiFrozenESM(ESM_MODELS[model_name], unfreeze=slice(unfreeze[0], unfreeze[1]), n_outputs=n_outputs).to(DEVICE)
     optimizer = torch.optim.AdamW([
         {'params': list(filter(lambda p: p.requires_grad, model.parameters())), 'lr': lr}
     ])
-    loss_fn = (lambda preds, targets: torch.sqrt(torch.nn.MSELoss()(preds, targets))) if task == "regression" else torch.nn.BCEWithLogitsLoss() if task == "binary" else torch.nn.CrossEntropyLoss()
+    loss_fn = (lambda preds, targets: torch.sqrt(torch.nn.MSELoss()(preds, targets))) if task == "regression" else torch.nn.BCEWithLogitsLoss()
     torch.manual_seed(42)
 
     best_model_state, losses = train_loop(model, train_dataloader, valid_dataloader, loss_fn, optimizer, epochs=100)
@@ -247,19 +288,23 @@ if __name__ == "__main__":
     parser.add_argument("--data-path", type=Path, required=True, help="Path to the CSV file containing the dataset.")
     parser.add_argument("--out-folder", type=Path, required=True, help="Output folder to save results.")
     parser.add_argument("--model-name", type=str, required=True, help="Name of the ESM model to use.")
-    parser.add_argument("--unfreeze", type=int, nargs=2, required=True, 
-                        help="Slice indices to unfreeze layers, e.g., --unfreeze 0 6 to unfreeze first 6 layers, "
-                        "or --unfreeze 6 6 to keep ESM2-t6 completely frozen.")
+    parser.add_argument("--unfreeze", type=int, nargs="+", required=True, help="Unfreeze layers [start, stop). If stop is omitted, unfreezes from start to the last layer. ""Example: --unfreeze 30 33 or --unfreeze 30")
     parser.add_argument("--task", type=str, choices=["regression", "binary", "class"], required=True, help="Type of prediction task.")
     parser.add_argument("--force", action="store_true", help="Force re-computation even if results exist.")
     parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate for optimizer.")
     args = parser.parse_args()
+    if len(args.unfreeze) == 1:
+        unfreeze = (args.unfreeze[0], None)
+    elif len(args.unfreeze) == 2:
+        unfreeze = (args.unfreeze[0], args.unfreeze[1])
+    else:
+        raise ValueError("--unfreeze must have 1 or 2 integers")
 
     routine(
         data_path=args.data_path,
         out_folder=args.out_folder,
         model_name=args.model_name,
-        unfreeze=(args.unfreeze[0], args.unfreeze[1]),
+        unfreeze=unfreeze,
         task=args.task,
         force=args.force,
         lr=args.lr
