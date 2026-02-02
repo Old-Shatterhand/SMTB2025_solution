@@ -69,18 +69,18 @@ class SemiFrozenESM(torch.nn.Module):
 
 class ProteinDataset(Dataset):
     """A dummy dataset of protein sequences and target regression values."""
-    def __init__(self, sequences: list[str], targets: list[float]):
+    def __init__(self, sequences: list[str], targets):
         self.sequences = sequences
         self.targets = targets
 
     def __len__(self):
         return len(self.sequences)
 
-    def __getitem__(self, idx: int) -> tuple[str, float]:
+    def __getitem__(self, idx: int):
         return self.sequences[idx], self.targets[idx]
 
 
-def collate_fn(tokenizer, batch):
+def collate_fn(tokenizer, batch, task: str):
     """Custom collate function for tokenization and batching."""
     sequences, targets = zip(*batch)
     # Tokenize the batch, ensuring padding and truncation
@@ -89,8 +89,10 @@ def collate_fn(tokenizer, batch):
                           padding=True,
                           truncation=True,
                           max_length=128)
-    # The targets are converted to a float tensor
-    targets = torch.tensor(targets, dtype=torch.float32).unsqueeze(1) # [B, 1]
+    if task == "class":
+        targets = torch.tensor(np.stack(targets), dtype=torch.float32) # [B, C]
+    else: # regression or binary
+        targets = torch.tensor(targets, dtype=torch.float32).unsqueeze(1)  # [B,1]
     return tokenized.to(DEVICE), targets.to(DEVICE)
 
 
@@ -192,8 +194,8 @@ def predict(model: torch.nn.Module, dataloader: torch.utils.data.DataLoader) -> 
                 pred = model(input_ids=batch['input_ids'], attention_mask=batch['attention_mask'])
             else:
                 pred = model(batch)
-            predictions.extend(pred.squeeze().cpu().numpy())
-            labels.extend(targets.squeeze().cpu().numpy())
+            predictions.extend(pred.detach().cpu().tolist())
+            labels.extend(targets.detach().cpu().tolist())
 
     return predictions, labels
 
@@ -216,6 +218,9 @@ def routine(
         return
     
     data = pd.read_csv(data_path)
+    if task == "class":
+        non_label_cols = {"ID", "id", "sequence", "split"}
+        label_cols = [c for c in data.columns if c not in non_label_cols]
     if task == "regression":
         labels = data[data["split"] == "valid"]["label"].values
         pred = np.full_like(labels, np.mean(data[data["split"] == "train"]["label"].values))
@@ -223,20 +228,48 @@ def routine(
 
     tokenizer = AutoTokenizer.from_pretrained(ESM_MODELS[model_name])
 
-    train_dataset = ProteinDataset(data[data["split"] == "train"]["sequence"].to_list(), data[data["split"] == "train"]["label"].to_list())
-    train_dataloader = DataLoader(train_dataset, batch_size=32, shuffle=True, collate_fn=lambda batch: collate_fn(tokenizer, batch))
+    if task == "class":
+        # targets are vectors 
+        y_train = data[data["split"] == "train"][label_cols].values.astype(np.float32)
+        y_valid = data[data["split"] == "valid"][label_cols].values.astype(np.float32)
+        y_test  = data[data["split"] == "test"][label_cols].values.astype(np.float32)
 
-    valid_dataset = ProteinDataset(data[data["split"] == "valid"]["sequence"].to_list(), data[data["split"] == "valid"]["label"].to_list())
-    valid_dataloader = DataLoader(valid_dataset, batch_size=32, shuffle=False, collate_fn=lambda batch: collate_fn(tokenizer, batch))
+        train_dataset = ProteinDataset(
+            data[data["split"] == "train"]["sequence"].to_list(),
+            list(y_train)
+        )
+        valid_dataset = ProteinDataset(
+            data[data["split"] == "valid"]["sequence"].to_list(),
+            list(y_valid)
+        )
+        test_dataset = ProteinDataset(
+            data[data["split"] == "test"]["sequence"].to_list(),
+            list(y_test)
+        )
+    else:
+        train_dataset = ProteinDataset(
+            data[data["split"] == "train"]["sequence"].to_list(),
+            data[data["split"] == "train"]["label"].to_list()
+        )
+        valid_dataset = ProteinDataset(
+            data[data["split"] == "valid"]["sequence"].to_list(),
+            data[data["split"] == "valid"]["label"].to_list()
+        )
+        test_dataset = ProteinDataset(
+            data[data["split"] == "test"]["sequence"].to_list(),
+            data[data["split"] == "test"]["label"].to_list()
+        )
 
-    test_dataset = ProteinDataset(data[data["split"] == "test"]["sequence"].to_list(), data[data["split"] == "test"]["label"].to_list())
-    test_dataloader = DataLoader(test_dataset, batch_size=32, shuffle=False, collate_fn=lambda batch: collate_fn(tokenizer, batch))
+    train_dataloader = DataLoader(train_dataset, batch_size=32, shuffle=True, collate_fn=lambda batch: collate_fn(tokenizer, batch, task))
+    valid_dataloader = DataLoader(valid_dataset, batch_size=32, shuffle=False, collate_fn=lambda batch: collate_fn(tokenizer, batch, task))
+    test_dataloader = DataLoader(test_dataset, batch_size=32, shuffle=False, collate_fn=lambda batch: collate_fn(tokenizer, batch, task))
 
-    model = SemiFrozenESM(ESM_MODELS[model_name], unfreeze=slice(unfreeze[0], unfreeze[1])).to(DEVICE)
+    n_outputs = len(label_cols) if task == "class" else 1
+    model = SemiFrozenESM(ESM_MODELS[model_name], unfreeze=slice(unfreeze[0], unfreeze[1]), n_outputs=n_outputs).to(DEVICE)
     optimizer = torch.optim.AdamW([
         {'params': list(filter(lambda p: p.requires_grad, model.parameters())), 'lr': lr}
     ])
-    loss_fn = (lambda preds, targets: torch.sqrt(torch.nn.MSELoss()(preds, targets))) if task == "regression" else torch.nn.BCEWithLogitsLoss() if task == "binary" else torch.nn.CrossEntropyLoss()
+    loss_fn = (lambda preds, targets: torch.sqrt(torch.nn.MSELoss()(preds, targets))) if task == "regression" else torch.nn.BCEWithLogitsLoss()
     torch.manual_seed(42)
 
     best_model_state, losses = train_loop(model, train_dataloader, valid_dataloader, loss_fn, optimizer, epochs=100)
