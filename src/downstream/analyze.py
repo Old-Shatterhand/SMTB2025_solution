@@ -294,6 +294,7 @@ def main(args):
     
     # The permutations have to be the same for all layers otherwise, the neighborhood overlap cannot be computed properly
     permutation = np.random.permutation(curr_train_X.shape[0])
+    (base_result_folder / "layer_0").mkdir(parents=True, exist_ok=True)
 
     if {'knn', 'id', 'no'}.intersection(calcs):
         print(f"[{time() - start:.2f}s] Fitting kNN on layer 0 ...")
@@ -331,6 +332,7 @@ def main(args):
     for layer in range(args.max_layer + 1):
         print(f"[{time() - start:.2f}s] Processing layer {layer} ...")
         result_folder = base_result_folder / f"layer_{layer}"
+        (base_result_folder / f"layer_{layer + 1}").mkdir(parents=True, exist_ok=True)
         print(f"[{time() - start:.2f}s] Result folder: {result_folder}")
         
         # Compute 2NN ID

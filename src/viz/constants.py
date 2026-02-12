@@ -4,7 +4,7 @@ SPLIT = "valid"
 SPLIT_ID = {"train": 0, "valid": 1, "test": 2}[SPLIT]
 
 MODELS = ["esm_t6", "esm_t12", "esm_t30", "esm_t33", "esm_t36", "esmc_300m", "esmc_600m", "ankh-base", "ankh-large", "prostt5", "prott5", "ohe"]
-DATASETS = ["fluorescence", "stability", "deeploc2", "deeploc2_bin"]  # , "esol"]
+DATASETS = ["fluorescence", "stability", "deeploc2", "deeploc2_bin", "meltome_atlas"]  # , "esol"]
 LAYERS = {
     "esm_t6": 6,
     "esm_t12": 12,
@@ -37,9 +37,11 @@ MODEL_COLORS = {
 
 DS_NAME_MAP = {
     "fluorescence": "Fluorescence",
+    "fluorescence_classification": "Fluorescence (Classification)",
     "stability": "Stability",
     "deeploc2": "DeepLoc2 (10-class)",
     "deeploc2_bin": "DeepLoc2 (Binary)",
+    "meltome_atlas": "Meltome Atlas",
 }
 
 REG_METRIC = "rmse"

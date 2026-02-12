@@ -9,7 +9,7 @@ from scipy.stats import spearmanr
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score, matthews_corrcoef, roc_auc_score
 
 from src.viz.constants import MODEL_COLORS, MODELS, SPLIT_ID, LAYERS
-from src.downstream.utils import multioutput_mcc
+from src.downstream.utils import epsilon_mcc, multioutput_mcc
 
 
 def compute_performance(
@@ -42,7 +42,10 @@ def compute_performance(
     """
     embed_dir = "aa_embeddings" if aa else "embeddings"
     if filepath is None:
-        filepath = root / embed_dir / model / dataset / f"layer_{layer}" / f"predictions_{algo}_{n_classes}.pkl"
+        if dataset == "binding":
+            filepath = root / embed_dir / model / dataset / f"layer_{layer}" / f"predictions_{algo}_10_{n_classes}.pkl"
+        else:
+            filepath = root / embed_dir / model / dataset / f"layer_{layer}" / f"predictions_{algo}_{n_classes}.pkl"
     if not filepath.exists():
         return 0
     with open(filepath, "rb") as f:
@@ -109,10 +112,13 @@ def plot_performance(
     for model in MODELS[:-1]:
         perfs = []
         for layer in range(LAYERS[model] + 1):
-            result = compute_performance(root, model_prefix + model, dataset, layer, algo, metric, aa=aa, n_classes=n_classes)
+            try:
+                result = compute_performance(root, model_prefix + model, dataset, layer, algo, metric, aa=aa, n_classes=n_classes)
+            except Exception:
+                result = 0
             perfs.append(result)
-        if sum(perfs) == 0:
-            continue
+        # if sum(perfs) == 0:
+        #     continue
         if relative:
             ax.plot(np.arange(0, 1 + 1e-5, 1 / (LAYERS[model])), perfs, label=model_prefix + model, c=MODEL_COLORS.get(model, None) if colored == True else colored)
         else:
@@ -156,7 +162,10 @@ def read_metric(
         dataset = "deeploc2"
     if filepath is None:
         if aa:
-            filepath = root / "aa_embeddings" / model / dataset / f"layer_{layer}" / f"{'noverlap_10' if metric == 'noverlap' else metric}_{n_classes}.csv"
+            if dataset == "binding":
+                filepath = root / "aa_embeddings" / model / dataset / f"layer_{layer}" / f"{'noverlap_10' if metric == 'noverlap' else metric}.csv"
+            else:
+                filepath = root / "aa_embeddings" / model / dataset / f"layer_{layer}" / f"{'noverlap_10' if metric == 'noverlap' else metric}_{n_classes}.csv"
         else:
             filepath = root / "embeddings" / model / dataset / f"layer_{layer}" / f"{'noverlap_10' if metric == 'noverlap' else metric}.csv"
     if not filepath.exists():
@@ -171,8 +180,10 @@ def read_pca_metric(
         dataset: str | None, 
         layer: int | None, 
         metric: Literal["zero", "pc@95", "var@10", "5dvol"], 
+        filename: str | None = None,
         filepath: Path | None = None,
         k: int = 5,
+        aa: bool = False, 
     ) -> float:
     """
     Read a specific metric from a CSV file for the given model, dataset, and layer.
@@ -191,20 +202,24 @@ def read_pca_metric(
         The value of the specified metric.
     """
     if filepath is None:
-        filepath = root / "embeddings" / model / dataset / f"layer_{layer}" / "pca_10.pkl"
+        embed_dir = "aa_embeddings" if aa else "embeddings"
+        filepath = root / embed_dir / model / dataset / f"layer_{layer}" / (filename if filename is not None else "pca_10.pkl")
     if not filepath.exists():
         return 0
     
     with open(filepath, "rb") as f:
         exp_var = pickle.load(f)
-    zero_index = next(i for i, v in enumerate(exp_var) if np.isclose(v, 0))
+    if any(np.isclose(exp_var, 0)):
+        zero_index = next(i for i, v in enumerate(exp_var) if np.isclose(v, 0))
+    else:
+        zero_index = len(exp_var)
     
     if metric == "zero":
         return zero_index
     
     exp_var = exp_var[:zero_index]
     if metric == "pc@95":
-        return next(i for i, v in enumerate(np.cumsum(exp_var) / sum(exp_var)) if v >= 0.95)
+        return next(i for i, v in enumerate(np.cumsum(exp_var) / sum(exp_var)) if v >= 0.95) / len(exp_var)
     elif metric == "var@10":
         return (np.cumsum(exp_var) / sum(exp_var))[10]
     elif metric == "5dvol":
@@ -219,7 +234,7 @@ def plot_metric(
         dataset: str | None, 
         relative: bool, 
         legend: bool = False, 
-        metric: Literal["ids", "density", "noverlap", "noverlap_50"] = "ids", 
+        metric: Literal["ids", "density", "noverlap", "noverlap_50", "zero", "pc@95", "var@10", "5dvol"] = "ids", 
         model_prefix: Literal["", "empty_"] = "", 
         aa: bool = False, 
         n_classes: int = 42
@@ -233,18 +248,23 @@ def plot_metric(
         dataset: Name of the dataset.
         relative: Whether to plot relative layer positions.
         legend: Whether to display the legend.
-        metric: Metric to plot ("ids", "density", "noverlap", "noverlap_50").
+        metric: Metric to plot ("ids", "density", "noverlap", "noverlap_50", "zero", "pc@95", "var@10", "5dvol").
         model_prefix: Prefix to add to model names. Either "" or "empty_" to indicate using normal or untrained models.
         aa: Whether to use amino acid level embeddings.
         n_classes: Number of classes for classification tasks. Only used for aa-tasks.
     """
     title_map = {"ids": "Intrinsic Dimensions", "density": "Density", "noverlap": "Neighbor Overlap", "noverlap_50": "Neighbor Overlap (50)"}
     for model in MODELS[:-1]:
+        # if metric == "5dvol" and model.startswith("ankh"):
+        #     continue  # ankh is crazy in this metric
         perfs = []
         for layer in range(LAYERS[model] + 1):
             if metric.startswith("noverlap") and layer == LAYERS[model]:
                 continue
-            result = read_metric(root, model_prefix + model, dataset, layer, metric, aa=aa, n_classes=n_classes)
+            if metric in {"zero", "pc@95", "var@10", "5dvol"}:
+                result = read_pca_metric(root, model_prefix + model, dataset, layer, metric, aa=aa)
+            else:
+                result = read_metric(root, model_prefix + model, dataset, layer, metric, aa=aa, n_classes=n_classes)
             perfs.append(result)
         if sum([abs(p) for p in perfs]) == 0:  # drop performances that are 0 throughout
             continue
@@ -258,7 +278,9 @@ def plot_metric(
             ax.plot(perfs, label=model_prefix + model, c=MODEL_COLORS.get(model, None))
 
     ax.set_xlabel(("Relative" if relative else "Absolute") + " Layer")
-    ax.set_ylabel(title_map[metric])
-    ax.set_title(f"{title_map[metric]}")
+    ax.set_ylabel(title_map.get(metric, metric))
+    ax.set_title(f"{title_map.get(metric, metric)}")
+    if metric == "5dvol":
+        ax.set_yscale("log")
     if legend:
         ax.legend(loc="upper right")

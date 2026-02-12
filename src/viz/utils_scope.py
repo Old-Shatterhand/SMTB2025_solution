@@ -7,9 +7,20 @@ from sklearn.metrics import matthews_corrcoef, roc_auc_score, accuracy_score
 
 from src.downstream.utils import multioutput_mcc
 from src.viz.constants import LAYERS, MODEL_COLORS, MODELS
+from src.viz.utils_general import read_pca_metric
 
 
-def compute_scope_performance(root: Path, model, dataset, layer, algo, metric, level, k=None, min_x=None):
+def compute_scope_performance(
+        root: Path, 
+        model, 
+        dataset, 
+        layer, 
+        algo, 
+        metric, 
+        level, 
+        k=None, 
+        min_x=None
+    ):
     assert (k is not None) != (min_x is not None), "Exactly one of k and min_x must be provided."
     with open(root / "embeddings" / model / dataset / f"layer_{layer}" / f"predictions_{algo}_{level}_{k if k is not None else f'min{min_x}'}.pkl", "rb") as f:
         y_hat, y = pd.read_pickle(f)[1]
@@ -30,6 +41,7 @@ def compute_scope_performance(root: Path, model, dataset, layer, algo, metric, l
             raise ValueError(f"Unknown metric: {metric}")
 
 
+# Unused
 def plot_scope_top4_metric(ax, root, algorithm, metric, level, relative):
     for model in MODELS[:-1]:
         if model.startswith("esmc"):
@@ -48,6 +60,7 @@ def plot_scope_top4_metric(ax, root, algorithm, metric, level, relative):
     ax.set_title(f"{metric.upper()} of {algorithm.upper()} heads ({level.capitalize()} Top-4)")
 
 
+# Unused
 def plot_scope_topX_metric(ax, root, model, algorithm, metric, level, relative, correlation: bool = False):
     for k in [4, 6, 8, 10, 15, 20]:
         perfs = []
@@ -78,6 +91,7 @@ def plot_scope_topX_metric(ax, root, model, algorithm, metric, level, relative, 
     ax.set_title(f"{metric_map[metric]} of {algorithm.upper()} heads ({model_map[model]})")
 
 
+# Unused
 def read_correlations(root: Path, model, layer, level, k):
     with open(root / model / "scope_40_208" / f"layer_{layer}" / f"correlations_{level}_{k}.csv", "rb") as f:
         corrs = pd.read_csv(f)
@@ -85,6 +99,9 @@ def read_correlations(root: Path, model, layer, level, k):
 
 
 def read_metric(root: Path, model, layer, metric, filename):
+    if metric in {"zero", "pc@95", "var@10", "5dvol"}:
+        return read_pca_metric(root, model, "scope_40_208", layer, metric, filename)
+    
     name_map = {"ids": "twonn_id", "density": "density", "noverlap": "neighbor_overlap", "noverlap_50": "neighbor_overlap"}
     filepath = root / "embeddings" / model / "scope_40_208" / f"layer_{layer}" / filename
     if not filepath.exists():
@@ -109,7 +126,7 @@ def plot_scope_minx_performance(ax, root, algorithm, metric, level, model_prefix
     ax.set_title(title or f"{metric.upper()} of {algorithm.upper()} heads")
 
 
-def plot_scope_minx_metric(ax, root, algorithm, metric, level, model_prefix, relative):
+def plot_scope_minx_metric(ax, root, metric, level, model_prefix, relative):
     title_map = {"ids": "Intrinsic Dimensions", "density": "Density", "noverlap": "Neighbor Overlap", "noverlap_50": "Neighbor Overlap (50)"}
     for model in MODELS[:-1]:
         perfs = []
@@ -118,6 +135,8 @@ def plot_scope_minx_metric(ax, root, algorithm, metric, level, model_prefix, rel
                 continue
             if metric == "ids":
                 result = read_metric(root, model_prefix + model, layer, metric, f"{metric}_{level}_min10.csv")
+            elif metric in {"zero", "pc@95", "var@10", "5dvol"}:
+                result = read_metric(root, model_prefix + model, layer, metric, f"pca_10_{level}_min10.pkl")
             else:
                 result = read_metric(root, model_prefix + model, layer, metric, f"{metric}_{level}_min10_10.csv")
             perfs.append(result)
@@ -130,6 +149,8 @@ def plot_scope_minx_metric(ax, root, algorithm, metric, level, model_prefix, rel
         else:
             ax.plot(perfs, label=model_prefix + model, color=MODEL_COLORS.get(model, None))
     
+    if metric == "5dvol":
+        ax.set_yscale("log")
     ax.set_xlabel(("Relative" if relative else "Absolute") + " Layer")
-    ax.set_ylabel(title_map[metric])
-    ax.set_title(f"{title_map[metric]} of {algorithm.upper()} heads")
+    ax.set_ylabel(title_map.get(metric, metric))
+    ax.set_title(title_map.get(metric, metric))
