@@ -17,6 +17,14 @@ LAYERS = {
     "ankh-large": 48,
     "prostt5": 24,
     "prott5": 24,
+    "progen2-small": 12,
+    "progen2-medium": 27,
+    "progen2-large": 32,
+    "rita-small": 12,
+    "rita-medium": 24,
+    "rita-large": 24,
+    "rita-xlarge": 24,
+    "protgpt2": 36,
     "ohe": 0,
 }
 MODEL_COLORS = {

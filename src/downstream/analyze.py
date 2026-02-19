@@ -239,6 +239,55 @@ def train_lr_head(
         pickle.dump(((train_preds, train_y), (val_preds, val_y), (test_preds, test_y)), f)
 
 
+def prepare_dataset(
+        dataset_name, 
+        data_path, 
+        n_classes=None, 
+        k: int = 0, 
+        level: str | None = None, 
+        top: int | None = None, 
+        min_: int | None = None,
+        max_rows: int | None = None,
+    ) -> tuple[pd.DataFrame, str | list[str] | int, str, str, str]:
+    # load the dataset and reduce it to the sampled sequences only (if applicable)
+    df = pd.read_csv(data_path)
+    df = df.sample(n=len(df))
+    df = df.head(max_rows) if max_rows is not None else df
+    
+    val_name = "val" if "val" in df["split"].unique() else "valid"
+    if "sampled" in df.columns:
+        df = df[df["sampled"] == True]
+    labels = "label"
+    model_suffix, space_suffix = [k], [k]
+    if n_classes is not None:  # amino-acid level prediction
+        labels = n_classes
+        model_suffix.append(n_classes)
+    else:  # whole-protein level prediction
+        if level is not None:
+            model_suffix.append(level)
+            space_suffix.append(level)
+            # Reduce the datasets for SCOPe superfamiliy/fold prediction to only hold samples of the the most frequent k classes or those classes with at least min-x samples
+            if top is not None == min_ is not None:
+                raise ValueError("Exactly one of --top and --min must be specified for SCOPe superfamiliy/fold predictions.")
+            if min_ is not None:
+                model_suffix.append(f"min{min_}")
+                space_suffix.append(f"min{min_}")
+                label_counts = df[level].value_counts()
+                valid_labels = label_counts[label_counts >= min_].index
+                df = df[df[level].isin(valid_labels)].reset_index(drop=True)
+            if top is not None:
+                model_suffix.append(f"top{top}")
+                space_suffix.append(f"top{top}")
+                top_k_labels = set(x[0] for x in list(sorted(dict(df[level].value_counts()).items(), key=lambda x: x[1], reverse=True)[:args.top]))
+                df = df[df[level].isin(top_k_labels)].reset_index(drop=True)
+            labels = level
+        if dataset_name == "deeploc2":
+            labels = ["Cytoplasm", "Nucleus", "Extracellular", "Cell membrane", "Mitochondrion", "Plastid", "Endoplasmic reticulum", "Lysosome/Vacuole", "Golgi apparatus", "Peroxisome"]
+    model_suffix = "_".join(map(str, model_suffix))
+    space_suffix = "_".join(map(str, space_suffix))
+    return df, labels, val_name, model_suffix, space_suffix
+
+
 def main(args):
     start = time()
     print(f"[{datetime.now()}] Starting AA model rolling computation...")
@@ -250,40 +299,10 @@ def main(args):
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
 
-    # load the dataset and reduce it to the sampled sequences only (if applicable)
-    df = pd.read_csv(args.data_path)  # , nrows=N_ROWS)
-    val_name = "val" if "val" in df["split"].unique() else "valid"
-    if "sampled" in df.columns:
-        df = df[df["sampled"] == True]
-    labels = "label"
-    model_suffix, space_suffix = [args.k], [args.k]
-    if args.n_classes is not None:  # amino-acid level prediction
-        labels = args.n_classes
-        model_suffix.append(args.n_classes)
-    else:  # whole-protein level prediction
-        if args.level is not None:
-            model_suffix.append(args.level)
-            space_suffix.append(args.level)
-            # Reduce the datasets for SCOPe superfamiliy/fold prediction to only hold samples of the the most frequent k classes or those classes with at least min-x samples
-            if args.top is not None == args.min is not None:
-                raise ValueError("Exactly one of --top and --min must be specified for SCOPe superfamiliy/fold predictions.")
-            if args.min is not None:
-                model_suffix.append(f"min{args.min}")
-                space_suffix.append(f"min{args.min}")
-                label_counts = df[args.level].value_counts()
-                valid_labels = label_counts[label_counts >= args.min].index
-                df = df[df[args.level].isin(valid_labels)].reset_index(drop=True)
-            if args.top is not None:
-                model_suffix.append(f"top{args.top}")
-                space_suffix.append(f"top{args.top}")
-                top_k_labels = set(x[0] for x in list(sorted(dict(df[args.level].value_counts()).items(), key=lambda x: x[1], reverse=True)[:args.top]))
-                df = df[df[args.level].isin(top_k_labels)].reset_index(drop=True)
-            labels = args.level
-        if dataset == "deeploc2":
-            labels = ["Cytoplasm", "Nucleus", "Extracellular", "Cell membrane", "Mitochondrion", "Plastid", "Endoplasmic reticulum", "Lysosome/Vacuole", "Golgi apparatus", "Peroxisome"]
+    df, labels, val_name, model_suffix, space_suffix = prepare_dataset(
+        dataset, args.data_path, args.n_classes, args.k, args.level, args.top, args.min
+    )
     calcs = set(args.calcs)
-    model_suffix = "_".join(map(str, model_suffix))
-    space_suffix = "_".join(map(str, space_suffix))
 
     # Load the first layer embeddings
     print(f"[{time() - start:.2f}s] Loading layer 0 embeddings...")
@@ -336,12 +355,12 @@ def main(args):
         print(f"[{time() - start:.2f}s] Result folder: {result_folder}")
         
         # Compute 2NN ID
-        # if 'id' in calcs and (not (r_file := (result_folder / f"ids_{space_suffix}.csv")).exists() or args.force):
-        #     twonn_id = compute_id_2NN(curr_distances)
-        #     print(f"[{time() - start:.2f}s] Layer {layer}: 2NN ID = {twonn_id}")
-        #     pd.DataFrame({
-        #         "twonn_id": [twonn_id],
-        #     }).to_csv(r_file, index=False)
+        if 'id' in calcs and (not (r_file := (result_folder / f"ids_{space_suffix}.csv")).exists() or args.force):
+            twonn_id = compute_id_2NN(curr_distances)
+            print(f"[{time() - start:.2f}s] Layer {layer}: 2NN ID = {twonn_id}")
+            pd.DataFrame({
+                "twonn_id": [twonn_id],
+            }).to_csv(r_file, index=False)
 
         # calculate PCA and PCA-induced volume
         if 'pca' in calcs and (not (r_file := (result_folder / f"pca_{space_suffix}.pkl")).exists() or args.force):
