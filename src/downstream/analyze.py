@@ -136,7 +136,7 @@ def knn(
         test_y: np.ndarray, 
         perm: np.ndarray,
         n_neighbors: int = 10,
-        task: Literal["regression", "binary", "class"] = "binary",
+        task: Literal["regression", "binary", "multi-class", "multi-label"] = "binary",
         suffix: str = "",
         force: bool = False,
     ) -> tuple[np.ndarray, np.ndarray]:
@@ -154,7 +154,7 @@ def knn(
         perm (np.ndarray): Permutation of training indices for shuffling.
         n_classes (int): Number of classes.
         n_neighbors (int): Number of neighbors for kNN.
-        task: Type of task: "regression", "binary", or "class".
+        task: Type of task: "regression", "binary", "multi-class", or "multi-label".
         suffix (str): Suffix for output files.
         force (bool): Whether to force retraining even if predictions exist.
     
@@ -208,7 +208,7 @@ def train_lr_head(
         test_X (np.ndarray): Test features.
         test_y (np.ndarray): Test labels.
         perm (np.ndarray): Permutation of training indices for shuffling.
-        task: Type of task: "regression", "binary", or "class".
+        task: Type of task: "regression", "binary", "multi-class", or "multi-label".
         suffix (str): Suffix for output files.
         force (bool): Whether to force retraining even if predictions exist.
     """
@@ -220,8 +220,10 @@ def train_lr_head(
         model = cuml.LinearRegression(output_type="numpy").fit(train_X[perm], train_y[perm])
     elif task == "binary":
         model = cuml.LogisticRegression(output_type="numpy").fit(train_X[perm], train_y[perm])
-    else:
+    elif task == "multi-class":
         model = MultiOutputClassifier(cuml.LogisticRegression(output_type="numpy"), n_jobs=1).fit(train_X[perm], train_y[perm].reshape(-1, 1))
+    elif task == "multi-label":
+        model = MultiOutputClassifier(cuml.LogisticRegression(output_type="numpy"), n_jobs=1).fit(train_X[perm], train_y[perm])
 
     print("Evaluating LR model")
     if task == "regression":
@@ -237,6 +239,55 @@ def train_lr_head(
         pickle.dump(((train_preds, train_y), (val_preds, val_y), (test_preds, test_y)), f)
 
 
+def prepare_dataset(
+        dataset_name, 
+        data_path, 
+        n_classes=None, 
+        k: int = 0, 
+        level: str | None = None, 
+        top: int | None = None, 
+        min_: int | None = None,
+        max_rows: int | None = None,
+    ) -> tuple[pd.DataFrame, str | list[str] | int, str, str, str]:
+    # load the dataset and reduce it to the sampled sequences only (if applicable)
+    df = pd.read_csv(data_path)
+    df = df.sample(n=len(df))
+    df = df.head(max_rows) if max_rows is not None else df
+    
+    val_name = "val" if "val" in df["split"].unique() else "valid"
+    if "sampled" in df.columns:
+        df = df[df["sampled"] == True]
+    labels = "label"
+    model_suffix, space_suffix = [k], [k]
+    if n_classes is not None:  # amino-acid level prediction
+        labels = n_classes
+        model_suffix.append(n_classes)
+    else:  # whole-protein level prediction
+        if level is not None:
+            model_suffix.append(level)
+            space_suffix.append(level)
+            # Reduce the datasets for SCOPe superfamiliy/fold prediction to only hold samples of the the most frequent k classes or those classes with at least min-x samples
+            if top is not None == min_ is not None:
+                raise ValueError("Exactly one of --top and --min must be specified for SCOPe superfamiliy/fold predictions.")
+            if min_ is not None:
+                model_suffix.append(f"min{min_}")
+                space_suffix.append(f"min{min_}")
+                label_counts = df[level].value_counts()
+                valid_labels = label_counts[label_counts >= min_].index
+                df = df[df[level].isin(valid_labels)].reset_index(drop=True)
+            if top is not None:
+                model_suffix.append(f"top{top}")
+                space_suffix.append(f"top{top}")
+                top_k_labels = set(x[0] for x in list(sorted(dict(df[level].value_counts()).items(), key=lambda x: x[1], reverse=True)[:args.top]))
+                df = df[df[level].isin(top_k_labels)].reset_index(drop=True)
+            labels = level
+        if dataset_name == "deeploc2":
+            labels = ["Cytoplasm", "Nucleus", "Extracellular", "Cell membrane", "Mitochondrion", "Plastid", "Endoplasmic reticulum", "Lysosome/Vacuole", "Golgi apparatus", "Peroxisome"]
+    model_suffix = "_".join(map(str, model_suffix))
+    space_suffix = "_".join(map(str, space_suffix))
+    return df, labels, val_name, model_suffix, space_suffix
+
+
 def main(args):
     start = time()
     print(f"[{datetime.now()}] Starting AA model rolling computation...")
@@ -248,40 +299,10 @@ def main(args):
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
 
-    # load the dataset and reduce it to the sampled sequences only (if applicable)
-    df = pd.read_csv(args.data_path)  # , nrows=N_ROWS)
-    val_name = "val" if "val" in df["split"].unique() else "valid"
-    if "sampled" in df.columns:
-        df = df[df["sampled"] == True]
-    labels = "label"
-    model_suffix, space_suffix = [args.k], [args.k]
-    if args.n_classes is not None:  # amino-acid level prediction
-        labels = args.n_classes
-        model_suffix.append(args.n_classes)
-    else:  # whole-protein level prediction
-        if args.level is not None:
-            model_suffix.append(args.level)
-            space_suffix.append(args.level)
-            # Reduce the datasets for SCOPe superfamiliy/fold prediction to only hold samples of the the most frequent k classes or those classes with at least min-x samples
-            if args.top is not None == args.min is not None:
-                raise ValueError("Exactly one of --top and --min must be specified for SCOPe superfamiliy/fold predictions.")
-            if args.min is not None:
-                model_suffix.append(f"min{args.min}")
-                space_suffix.append(f"min{args.min}")
-                label_counts = df[args.level].value_counts()
-                valid_labels = label_counts[label_counts >= args.min].index
-                df = df[df[args.level].isin(valid_labels)].reset_index(drop=True)
-            if args.top is not None:
-                model_suffix.append(f"top{args.top}")
-                space_suffix.append(f"top{args.top}")
-                top_k_labels = set(x[0] for x in list(sorted(dict(df[args.level].value_counts()).items(), key=lambda x: x[1], reverse=True)[:args.top]))
-                df = df[df[args.level].isin(top_k_labels)].reset_index(drop=True)
-            labels = args.level
-        if dataset == "deeploc2":
-            labels = ["Cytoplasm", "Nucleus", "Extracellular", "Cell membrane", "Mitochondrion", "Plastid", "Endoplasmic reticulum", "Lysosome/Vacuole", "Golgi apparatus", "Peroxisome"]
+    df, labels, val_name, model_suffix, space_suffix = prepare_dataset(
+        dataset, args.data_path, args.n_classes, args.k, args.level, args.top, args.min
+    )
     calcs = set(args.calcs)
-    model_suffix = "_".join(map(str, model_suffix))
-    space_suffix = "_".join(map(str, space_suffix))
 
     # Load the first layer embeddings
     print(f"[{time() - start:.2f}s] Loading layer 0 embeddings...")
@@ -292,6 +313,7 @@ def main(args):
     
     # The permutations have to be the same for all layers otherwise, the neighborhood overlap cannot be computed properly
     permutation = np.random.permutation(curr_train_X.shape[0])
+    (base_result_folder / "layer_0").mkdir(parents=True, exist_ok=True)
 
     if {'knn', 'id', 'no'}.intersection(calcs):
         print(f"[{time() - start:.2f}s] Fitting kNN on layer 0 ...")
@@ -329,15 +351,16 @@ def main(args):
     for layer in range(args.max_layer + 1):
         print(f"[{time() - start:.2f}s] Processing layer {layer} ...")
         result_folder = base_result_folder / f"layer_{layer}"
+        (base_result_folder / f"layer_{layer + 1}").mkdir(parents=True, exist_ok=True)
         print(f"[{time() - start:.2f}s] Result folder: {result_folder}")
         
         # Compute 2NN ID
-        # if 'id' in calcs and (not (r_file := (result_folder / f"ids_{space_suffix}.csv")).exists() or args.force):
-        #     twonn_id = compute_id_2NN(curr_distances)
-        #     print(f"[{time() - start:.2f}s] Layer {layer}: 2NN ID = {twonn_id}")
-        #     pd.DataFrame({
-        #         "twonn_id": [twonn_id],
-        #     }).to_csv(r_file, index=False)
+        if 'id' in calcs and (not (r_file := (result_folder / f"ids_{space_suffix}.csv")).exists() or args.force):
+            twonn_id = compute_id_2NN(curr_distances)
+            print(f"[{time() - start:.2f}s] Layer {layer}: 2NN ID = {twonn_id}")
+            pd.DataFrame({
+                "twonn_id": [twonn_id],
+            }).to_csv(r_file, index=False)
 
         # calculate PCA and PCA-induced volume
         if 'pca' in calcs and (not (r_file := (result_folder / f"pca_{space_suffix}.pkl")).exists() or args.force):
@@ -400,7 +423,8 @@ def main(args):
         # save the distance indices for next Neighborhood Overlap computation
         if {'knn', 'id', 'no'}.intersection(calcs):
             curr_dist_indices = copy.deepcopy(next_dist_indices)
-            curr_distances = copy.deepcopy(next_distances)
+            # curr_distances = copy.deepcopy(next_distances)
+            curr_train_X = copy.deepcopy(next_train_X)
 
 
 if __name__ == "__main__":
@@ -410,7 +434,7 @@ if __name__ == "__main__":
     parser.add_argument('--max-layer', type=int, required=True)
     parser.add_argument('--k', type=int, default=10, 
                         help='Number of neighbors for all neighbor-based computations')
-    parser.add_argument('--task', type=str, default='classification', choices=['regression', 'binary', 'class'], 
+    parser.add_argument('--task', type=str, default='multi-class', choices=['regression', 'binary', 'multi-class', 'multi-label'], 
                         help='Type of prediction task.') 
     parser.add_argument('--level', type=str, default=None, choices=["superfamily", "fold"], 
                         help='Level of SCOPe hierarchy to consider. ' \
@@ -421,7 +445,7 @@ if __name__ == "__main__":
     parser.add_argument('--min', type=int, default=None, 
                         help="Minimum number of samples for a label to be included. " \
                         "Only used for SCOPe fold/superfamily prediction, mutually exclusive with --top.")
-    parser.add_argument('--n-classes', type=int, default=None, choices=[2, 3, 8], 
+    parser.add_argument('--n-classes', type=int, default=None, 
                         help='Number of classes to consider. Only for amino-acid level prediction tasks.')
     parser.add_argument('--calcs', nargs='+', default=['lr', 'knn', 'id', 'no', 'pca'], 
                         choices=['lr', 'knn', 'id', 'no', 'pca'], help='Calculations to perform. Choices are '

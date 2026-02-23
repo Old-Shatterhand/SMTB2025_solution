@@ -17,9 +17,9 @@ def compute_id_2NN(distances: np.ndarray) -> float:
     Returns:
         intrinsic_dim (float): the estimated intrinsic dimension
     """
-    # with np.errstate(divide='ignore', invalid='ignore'):
+    N = distances.shape[0]
+    distances = distances[distances[:, 1] > 0]
     mus = distances[:, 2] / distances[:, 1]
-    N = mus.shape[0]
     n_eff = int(N * 0.9)
     log_mus_reduced = np.sort(np.log(mus))[:n_eff]
 

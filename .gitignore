@@ -1,3 +1,6 @@
 __pycache__/
 *.pth
+.vscode/
+bash/
 figures/
+figures_old/
