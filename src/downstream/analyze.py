@@ -134,7 +134,6 @@ def knn(
         val_y: np.ndarray, 
         test_X: np.ndarray, 
         test_y: np.ndarray, 
-        perm: np.ndarray,
         n_neighbors: int = 10,
         task: Literal["regression", "binary", "multi-class", "multi-label"] = "binary",
         suffix: str = "",
@@ -151,7 +150,6 @@ def knn(
         val_y (np.ndarray): Validation labels.
         test_X (np.ndarray): Test features.
         test_y (np.ndarray): Test labels.
-        perm (np.ndarray): Permutation of training indices for shuffling.
         n_classes (int): Number of classes.
         n_neighbors (int): Number of neighbors for kNN.
         task: Type of task: "regression", "binary", "multi-class", or "multi-label".
@@ -162,11 +160,11 @@ def knn(
         Tuple[np.ndarray, np.ndarray]: Distances and indices of k-nearest neighbors for ID and NOverlap computation.
     """
     if task == "regression":
-        knn = kNN_reg(output_type="numpy", n_neighbors=n_neighbors).fit(train_X[perm], train_y[perm])
+        knn = kNN_reg(output_type="numpy", n_neighbors=n_neighbors).fit(train_X, train_y)
     else:
-        knn = kNN_class(output_type="numpy", n_neighbors=n_neighbors).fit(train_X[perm], train_y[perm])
+        knn = kNN_class(output_type="numpy", n_neighbors=n_neighbors).fit(train_X, train_y)
 
-    if not (r_file := (out_folder / f"predictions_knn_{suffix}.pkl")).exists() or force:
+    if not (r_file := (out_folder / f"predictions_knn{suffix}.pkl")).exists() or force:
         print("Evaluating kNN model")
         if task == "regression":
             train_preds = knn.predict(train_X)
@@ -191,7 +189,6 @@ def train_lr_head(
         val_y: np.ndarray, 
         test_X: np.ndarray, 
         test_y: np.ndarray, 
-        perm: np.ndarray, 
         task: Literal["regression", "binary", "class"] = "binary",
         suffix: str = "",
         force: bool = False,
@@ -207,23 +204,22 @@ def train_lr_head(
         val_y (np.ndarray): Validation labels.
         test_X (np.ndarray): Test features.
         test_y (np.ndarray): Test labels.
-        perm (np.ndarray): Permutation of training indices for shuffling.
         task: Type of task: "regression", "binary", "multi-class", or "multi-label".
         suffix (str): Suffix for output files.
         force (bool): Whether to force retraining even if predictions exist.
     """
-    if (r_file := (out_folder / f"predictions_lr_{suffix}.pkl")).exists() and not force:
+    if (r_file := (out_folder / f"predictions_lr{suffix}.pkl")).exists() and not force:
         print("LR predictions already exist.")
         return
     
     if task == "regression":
-        model = cuml.LinearRegression(output_type="numpy").fit(train_X[perm], train_y[perm])
+        model = cuml.LinearRegression(output_type="numpy").fit(train_X, train_y)
     elif task == "binary":
-        model = cuml.LogisticRegression(output_type="numpy").fit(train_X[perm], train_y[perm])
+        model = cuml.LogisticRegression(output_type="numpy").fit(train_X, train_y)
     elif task == "multi-class":
-        model = MultiOutputClassifier(cuml.LogisticRegression(output_type="numpy"), n_jobs=1).fit(train_X[perm], train_y[perm].reshape(-1, 1))
+        model = MultiOutputClassifier(cuml.LogisticRegression(output_type="numpy"), n_jobs=1).fit(train_X, train_y.reshape(-1, 1))
     elif task == "multi-label":
-        model = MultiOutputClassifier(cuml.LogisticRegression(output_type="numpy"), n_jobs=1).fit(train_X[perm], train_y[perm])
+        model = MultiOutputClassifier(cuml.LogisticRegression(output_type="numpy"), n_jobs=1).fit(train_X, train_y)
 
     print("Evaluating LR model")
     if task == "regression":
@@ -258,7 +254,7 @@ def prepare_dataset(
     if "sampled" in df.columns:
         df = df[df["sampled"] == True]
     labels = "label"
-    model_suffix, space_suffix = [k], [k]
+    model_suffix, space_suffix = [], []
     if n_classes is not None:  # amino-acid level prediction
         labels = n_classes
         model_suffix.append(n_classes)
@@ -283,8 +279,8 @@ def prepare_dataset(
             labels = level
         if dataset_name == "deeploc2":
             labels = ["Cytoplasm", "Nucleus", "Extracellular", "Cell membrane", "Mitochondrion", "Plastid", "Endoplasmic reticulum", "Lysosome/Vacuole", "Golgi apparatus", "Peroxisome"]
-    model_suffix = "_".join(map(str, model_suffix))
-    space_suffix = "_".join(map(str, space_suffix))
+    model_suffix = "_" + "_".join(map(str, model_suffix))
+    space_suffix = "_" + "_".join(map(str, space_suffix))
     return df, labels, val_name, model_suffix, space_suffix
 
 
@@ -293,6 +289,7 @@ def main(args):
     print(f"[{datetime.now()}] Starting AA model rolling computation...")
     dataset = args.data_path.stem
     base_result_folder = args.embed_base.parent / dataset 
+    (base_result_folder / "layer_0").mkdir(parents=True, exist_ok=True)
 
     # Set seeds
     random.seed(args.seed)
@@ -310,10 +307,6 @@ def main(args):
     if {'knn', 'id', 'no', 'lr'}.intersection(calcs):
         curr_val_X, curr_val_y = build_dataloader(df[df["split"] == val_name], args.embed_base / "layer_0", labels)
         curr_test_X, curr_test_y = build_dataloader(df[df["split"] == "test"], args.embed_base / "layer_0", labels)
-    
-    # The permutations have to be the same for all layers otherwise, the neighborhood overlap cannot be computed properly
-    permutation = np.random.permutation(curr_train_X.shape[0])
-    (base_result_folder / "layer_0").mkdir(parents=True, exist_ok=True)
 
     if {'knn', 'id', 'no'}.intersection(calcs):
         print(f"[{time() - start:.2f}s] Fitting kNN on layer 0 ...")
@@ -325,7 +318,6 @@ def main(args):
             val_y=curr_val_y, 
             test_X=curr_test_X, 
             test_y=curr_test_y, 
-            perm=permutation, 
             n_neighbors=args.k, 
             task=args.task, 
             suffix=model_suffix, 
@@ -342,7 +334,6 @@ def main(args):
             val_y=curr_val_y, 
             test_X=curr_test_X, 
             test_y=curr_test_y, 
-            perm=permutation, 
             task=args.task, 
             suffix=model_suffix, 
             force=args.force
@@ -355,7 +346,7 @@ def main(args):
         print(f"[{time() - start:.2f}s] Result folder: {result_folder}")
         
         # Compute 2NN ID
-        if 'id' in calcs and (not (r_file := (result_folder / f"ids_{space_suffix}.csv")).exists() or args.force):
+        if 'id' in calcs and (not (r_file := (result_folder / f"ids{space_suffix}.csv")).exists() or args.force):
             twonn_id = compute_id_2NN(curr_distances)
             print(f"[{time() - start:.2f}s] Layer {layer}: 2NN ID = {twonn_id}")
             pd.DataFrame({
@@ -363,7 +354,7 @@ def main(args):
             }).to_csv(r_file, index=False)
 
         # calculate PCA and PCA-induced volume
-        if 'pca' in calcs and (not (r_file := (result_folder / f"pca_{space_suffix}.pkl")).exists() or args.force):
+        if 'pca' in calcs and (not (r_file := (result_folder / f"pca{space_suffix}.pkl")).exists() or args.force):
             pca = PCA(svd_solver='auto').fit(curr_train_X)
             print(f"[{time() - start:.2f}s] Layer {layer}: PCA computed.")
             with open(r_file, "wb") as f:
@@ -389,7 +380,6 @@ def main(args):
                 val_y=next_val_y, 
                 test_X=next_test_X, 
                 test_y=next_test_y, 
-                perm=permutation, 
                 n_neighbors=args.k, 
                 task=args.task, 
                 suffix=model_suffix, 
@@ -406,14 +396,13 @@ def main(args):
                 val_y=next_val_y, 
                 test_X=next_test_X, 
                 test_y=next_test_y, 
-                perm=permutation, 
                 task=args.task, 
                 suffix=model_suffix, 
                 force=args.force
             )
         
         # Compute Neighborhood Overlap between this layer (next) and the previous one (curr)
-        if 'no' in calcs and (not (r_file := (result_folder / f"noverlap_{space_suffix}.csv")).exists() or args.force):
+        if 'no' in calcs and (not (r_file := (result_folder / f"noverlap{space_suffix}.csv")).exists() or args.force):
             noverlap = return_data_overlap(curr_dist_indices, next_dist_indices, k=args.k)
             print(f"[{time() - start:.2f}s] Layer {layer}: Neighbor Overlap = {noverlap}")
             pd.DataFrame({
@@ -423,7 +412,7 @@ def main(args):
         # save the distance indices for next Neighborhood Overlap computation
         if {'knn', 'id', 'no'}.intersection(calcs):
             curr_dist_indices = copy.deepcopy(next_dist_indices)
-            # curr_distances = copy.deepcopy(next_distances)
+            curr_distances = copy.deepcopy(next_distances)
             curr_train_X = copy.deepcopy(next_train_X)
 
 

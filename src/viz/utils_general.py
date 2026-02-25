@@ -9,7 +9,7 @@ from scipy.stats import spearmanr
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score, matthews_corrcoef, roc_auc_score
 
 from src.viz.constants import MODEL_COLORS, MODELS, SPLIT_ID, LAYERS
-from src.downstream.utils import epsilon_mcc, multioutput_mcc
+from src.downstream.utils import multioutput_mcc
 
 
 def compute_performance(

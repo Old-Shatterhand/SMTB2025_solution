@@ -149,9 +149,32 @@ def plot_pca(dataset: str, aa: bool = False):
     plt.savefig(f"figures/pca_{dataset}.png")
 
 
+def plot_olga():
+    fig = plt.figure(figsize=(9, 9))
+    gs = gridspec.GridSpec(2, 2, figure=fig)
+    axs = [
+        fig.add_subplot(gs[0, 0]), fig.add_subplot(gs[0, 1]),
+        fig.add_subplot(gs[1, 0]), fig.add_subplot(gs[1, 1]),
+    ]
+
+    plot_performance(axs[0], ROOT, "fluorescence", "lr", REG_METRIC, model_prefix="", relative=True, legend=False, aa=False, n_classes=42, title=r"$\bf{Fluorescence}$" + "\nRMSE of LR heads")
+    plot_performance(axs[1], ROOT, "stability", "lr", REG_METRIC, model_prefix="", relative=True, legend=False, aa=False, n_classes=42, title=r"$\bf{Stability}$" + "\nRMSE of LR heads")
+    plot_performance(axs[2], ROOT, "deeploc2", "lr", CLASS_METRIC, model_prefix="", relative=True, legend=False, aa=False, n_classes=42, title=r"$\bf{Localization}$" + "\nMCC of LR heads")
+    plot_scope_minx_performance(axs[3], ROOT, "lr", CLASS_METRIC, "fold", model_prefix="", relative=True, title=r"$\bf{Remote\ homology}$" + "\nMCC of LR heads (Fold Min-10)")
+
+    handles, labels = axs[0].get_legend_handles_labels()
+    handles.insert(5, Rectangle((0, 0), 1, 1, fc="w", fill=False, edgecolor='none', linewidth=0))  #plt.Line2D([0], [0], color="black", lw=0, label="OHE"))
+    labels.insert(5, "")
+    fig.legend(handles, labels, loc="lower center", bbox_to_anchor=(0.5, 0), bbox_transform=fig.transFigure, ncol=(len(MODELS) + 1) // 2)  # -0.08
+
+    plt.tight_layout(rect=[0, 0.075, 1, 1])
+    plt.savefig(f"figures/plot_olga.pdf")
+
+
 if __name__ == "__main__":
     Path("figures").mkdir(parents=True, exist_ok=True)
-    plot_dataset_analysis("meltome_atlas")
+    plot_olga()
+    # plot_dataset_analysis("meltome_atlas")
     # plot_dataset_analysis("fluorescence_classification")
     exit(0)
 

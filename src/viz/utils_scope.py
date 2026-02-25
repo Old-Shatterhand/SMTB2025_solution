@@ -79,7 +79,7 @@ def plot_scope_topX_metric(ax, root, model, algorithm, metric, level, relative, 
     model_map = {
         "prostt5": "ProstT5",
         "prott5": "ProtT5",
-        "ankh-large": "Ankh-large",
+        "ankh_large": "Ankh-large",
     }
     metric_map = {
         "mcc": "MCC",
