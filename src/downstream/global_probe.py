@@ -19,7 +19,7 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 EARLY_STOPPING_PATIENCE = 10
 
 class GlobalProbe(nn.Module):
-    def __init__(self, input_dim: int, num_outputs: int, num_layers: int):
+    def __init__(self, input_dim: int, num_outputs: int, num_layers: int, task: Literal["regression", "binary", "multi-class", "multi-label"]):
         """
         A global probe that learns to weight the contributions of different layers' representations.
         
@@ -27,11 +27,17 @@ class GlobalProbe(nn.Module):
             input_dim (int): The dimensionality of the input representations from each layer.
             num_outputs (int): The number of output classes for classification tasks or 1 for regression
             num_layers (int): The number of layers to consider for probing.
+            task (Literal["regression", "binary", "multi-class", "multi-label"]): The type of prediction task being performed, which determines the loss function used during training.
         """
         super().__init__()
         self.weights = nn.Parameter(torch.randn(num_layers + 1), requires_grad=True)
         self.weight_norm = nn.Softmax(dim=0)
         self.linear = nn.Linear(input_dim, num_outputs)
+        self.head = None
+        if task == "multi-class":
+            self.head = nn.Softmax(dim=1)
+        elif task == "multi-label":
+            self.head = nn.Sigmoid()
 
     def forward(self, batch: list[torch.Tensor]) -> torch.Tensor:
         """
@@ -46,7 +52,10 @@ class GlobalProbe(nn.Module):
         """
         pd_weights = self.weight_norm(self.weights)
         weighted_sum = sum(w * layer for w, layer in zip(pd_weights, batch))
-        return self.linear(weighted_sum)
+        x = self.linear(weighted_sum)
+        if self.head is not None:
+            x = self.head(x)
+        return x
 
 
 class GlobalDataset(Dataset):
@@ -220,6 +229,11 @@ def routine(
     train_dataset = GlobalDataset(df, "train", embed_dir, num_layers, label, device=DEVICE)
     valid_dataset = GlobalDataset(df, val_name, embed_dir, num_layers, label, device=DEVICE)
     weights, losses = [], []
+    loss_fn = lambda preds, targets: torch.sqrt(torch.nn.MSELoss()(preds, targets))
+    if task == "binary":
+        loss = torch.nn.BCEWithLogitsLoss()
+    elif task == "multi-class" or task == "multi-label":
+        loss = torch.nn.CrossEntropyLoss()
     
     for curr_max_layer in range(1, num_layers + 1):
         print(f"\n=== Training with up to layer {curr_max_layer} ===")
@@ -229,16 +243,15 @@ def routine(
         valid_dataset.set_layer_limit(curr_max_layer)
         valid_dataloader = DataLoader(valid_dataset, batch_size=32, shuffle=False)
 
-        model = GlobalProbe(train_dataset.embed_dim(), num_outputs, curr_max_layer).to(DEVICE)
+        model = GlobalProbe(train_dataset.embed_dim(), num_outputs, curr_max_layer, task).to(DEVICE)
         optimizer = torch.optim.Adam([{'params': list(filter(lambda p: p.requires_grad, model.parameters())), 'lr': 0.0001}])
-        loss_fn = (lambda preds, targets: torch.sqrt(torch.nn.MSELoss()(preds, targets))) if task == "regression" else torch.nn.BCEWithLogitsLoss() if task == "binary" else torch.nn.CrossEntropyLoss()
 
         epoch_weights, epoch_losses = train_loop(model, train_dataloader, valid_dataloader, loss_fn, optimizer, epochs=100)
         weights.append(epoch_weights)
         losses.append(epoch_losses)
     
     print("\n".join([str(list(scipy.special.softmax(x))) for x in weights]))
-    with open(embed_dir / f"probe_weights_{dataset_name}.pkl", "wb") as f:
+    with open(embed_dir / f"probe_weights_{dataset_name}_{num_outputs}.pkl", "wb") as f:
         pickle.dump((weights, losses), f)
 
 
@@ -248,7 +261,7 @@ if __name__ == "__main__":
     parser.add_argument("--embed-path", type=Path, required=True, help="Output folder to save results.")
     parser.add_argument("--num-layers", type=int, required=True, help="Number of layers in the model to consider for probing.")
     parser.add_argument("--num-outputs", type=int, required=True, help="Number of output classes for classification tasks or 1 for regression.")
-    parser.add_argument("--task", type=str, choices=["regression", "binary", "class"], required=True, help="Type of prediction task.")
+    parser.add_argument("--task", type=str, choices=["regression", "binary", "multi-class", "multi-label"], required=True, help="Type of prediction task.")
     args = parser.parse_args()
 
     routine(
