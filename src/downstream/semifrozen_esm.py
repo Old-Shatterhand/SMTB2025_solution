@@ -10,7 +10,8 @@ import numpy as np
 import pandas as pd
 from transformers import AutoTokenizer, AutoModel
 from torch.utils.data import Dataset, DataLoader
-
+import math
+import torch.nn.functional as F
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 ESM_MODELS = {
@@ -21,6 +22,52 @@ ESM_MODELS = {
     "esm_t36": "facebook/esm2_t36_3B_UR50D",
 }
 EARLY_STOPPING_PATIENCE = 10
+
+
+LOG_SQRT_2PI = 0.5 * math.log(2.0 * math.pi)
+
+
+def _gaussian_logpdf(y: torch.Tensor, mu: torch.Tensor, log_sigma: torch.Tensor) -> torch.Tensor:
+    """Log N(y; mu, sigma) with sigma = exp(log_sigma). Shapes: [B,1]."""
+    inv_sigma = torch.exp(-log_sigma)
+    z = (y - mu) * inv_sigma
+    return -(LOG_SQRT_2PI + log_sigma + 0.5 * z * z)
+
+
+def mdn2_nll(preds: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+    """NLL loss for 2-component Gaussian mixture.
+
+    preds: [B,5] = [logit_pi, mu1, log_sigma1, mu2, log_sigma2]
+    targets: [B,1]
+    """
+    if preds.ndim != 2 or preds.size(1) != 5:
+        raise ValueError(f"mdn2_nll expects preds of shape [B,5], got {tuple(preds.shape)}")
+    if targets.ndim != 2 or targets.size(1) != 1:
+        raise ValueError(f"mdn2_nll expects targets of shape [B,1], got {tuple(targets.shape)}")
+
+    logit_pi, mu1, log_sigma1, mu2, log_sigma2 = preds.split(1, dim=1)
+
+    # Clamp log-sigmas for numerical stability
+    log_sigma1 = torch.clamp(log_sigma1, -7.0, 3.0)
+    log_sigma2 = torch.clamp(log_sigma2, -7.0, 3.0)
+
+    # Stable log mixture weights
+    log_pi1 = -F.softplus(-logit_pi)   # log(sigmoid(logit_pi))
+    log_pi2 = -F.softplus(logit_pi)    # log(1 - sigmoid(logit_pi))
+
+    log_p1 = log_pi1 + _gaussian_logpdf(targets, mu1, log_sigma1)
+    log_p2 = log_pi2 + _gaussian_logpdf(targets, mu2, log_sigma2)
+
+    log_mix = torch.logaddexp(log_p1, log_p2)
+    return -log_mix.mean()
+
+
+def mdn2_mean(preds: torch.Tensor) -> torch.Tensor:
+    """Mixture mean E[y] for 2-component Gaussian mixture. preds: [B,5] -> [B,1]."""
+    logit_pi, mu1, _, mu2, _ = preds.split(1, dim=1)
+    pi = torch.sigmoid(logit_pi)
+    return pi * mu1 + (1.0 - pi) * mu2
+
 
 class SemiFrozenESM(torch.nn.Module):
     def __init__(self, esm_name: str, unfreeze: slice, n_outputs: int = 1, output_logits: bool = False):
@@ -91,7 +138,7 @@ def collate_fn(tokenizer, batch, task: str):
                           max_length=128)
     if task == "class":
         targets = torch.tensor(np.stack(targets), dtype=torch.float32) # [B, C]
-    else: # regression or binary
+    else: # regression or binary or regression_gauss
         targets = torch.tensor(targets, dtype=torch.float32).unsqueeze(1)  # [B,1]
     return tokenized.to(DEVICE), targets.to(DEVICE)
 
@@ -205,7 +252,7 @@ def routine(
         out_folder: Path, 
         model_name: str, 
         unfreeze: tuple[int, int | None],
-        task: Literal["regression", "binary", "class"], 
+        task: Literal["regression", "regression_gauss", "binary", "class"], 
         force: bool = False, 
         lr: float = 1e-4
     ):
@@ -213,7 +260,8 @@ def routine(
     unf_tag = f"{unfreeze[0]}_{unfreeze[1] if unfreeze[1] is not None else 'end'}"
     loss_file = out_folder / f"loss_unfrozen_{model_name}_{unf_tag}_{lr}.csv"
     result_file = out_folder / f"predictions_unfrozen_{model_name}_{unf_tag}_{lr}.pkl"
-    if not force and result_file.exists() and loss_file.exists():
+    best_model_file = out_folder / f"best_model_{model_name}_{unf_tag}_{lr}.pt"
+    if not force and result_file.exists() and loss_file.exists() and best_model_file.exists():
         print("Results already exist.")
         return
     
@@ -221,10 +269,10 @@ def routine(
     if task == "class":
         non_label_cols = {"ID", "id", "sequence", "split"}
         label_cols = [c for c in data.columns if c not in non_label_cols]
-    if task == "regression":
+    if task in {"regression", "regression_gauss"}:
         labels = data[data["split"] == "valid"]["label"].values
         pred = np.full_like(labels, np.mean(data[data["split"] == "train"]["label"].values))
-        print(f"Baseline MSE (mean predictor) on validation set: {np.sqrt(np.mean((labels - pred)**2)):.4f}")
+        print(f"Baseline RMSE (mean predictor) on validation set: {np.sqrt(np.mean((labels - pred)**2)):.4f}")
 
     tokenizer = AutoTokenizer.from_pretrained(ESM_MODELS[model_name])
 
@@ -264,19 +312,53 @@ def routine(
     valid_dataloader = DataLoader(valid_dataset, batch_size=32, shuffle=False, collate_fn=lambda batch: collate_fn(tokenizer, batch, task))
     test_dataloader = DataLoader(test_dataset, batch_size=32, shuffle=False, collate_fn=lambda batch: collate_fn(tokenizer, batch, task))
 
-    n_outputs = len(label_cols) if task == "class" else 1
+    if task == "class":
+        n_outputs = len(label_cols)
+    elif task == "regression_gauss":
+        n_outputs = 5
+    else:
+        n_outputs = 1
     model = SemiFrozenESM(ESM_MODELS[model_name], unfreeze=slice(unfreeze[0], unfreeze[1]), n_outputs=n_outputs).to(DEVICE)
     optimizer = torch.optim.AdamW([
         {'params': list(filter(lambda p: p.requires_grad, model.parameters())), 'lr': lr}
     ])
-    loss_fn = (lambda preds, targets: torch.sqrt(torch.nn.MSELoss()(preds, targets))) if task == "regression" else torch.nn.BCEWithLogitsLoss()
+    if task == "regression":
+        loss_fn = lambda preds, targets: torch.sqrt(torch.nn.MSELoss()(preds, targets))
+    elif task == "regression_gauss":
+        loss_fn = mdn2_nll
+    else:
+        loss_fn = torch.nn.BCEWithLogitsLoss()
     torch.manual_seed(42)
 
     best_model_state, losses = train_loop(model, train_dataloader, valid_dataloader, loss_fn, optimizer, epochs=100)
+    if best_model_state is None:
+        raise RuntimeError("Training did not produce a best model state (best_model_state is None).")
+
+    # Save best model weights
+    torch.save(best_model_state, best_model_file)
+
     model.load_state_dict(best_model_state)
-    train_predictions, train_labels = predict(model, train_dataloader)
-    valid_predictions, valid_labels = predict(model, valid_dataloader)
-    test_predictions, test_labels = predict(model, test_dataloader)
+
+    if task == "regression_gauss":
+        # Convert MDN outputs to a single scalar prediction (mixture mean) for saving
+        def _predict_mean(dataloader):
+            model.eval()
+            preds_out, labels_out = [], []
+            with torch.no_grad():
+                for batch, targets in dataloader:
+                    pred = model(input_ids=batch['input_ids'], attention_mask=batch['attention_mask'])
+                    pred_mean = mdn2_mean(pred)
+                    preds_out.extend(pred_mean.detach().cpu().tolist())
+                    labels_out.extend(targets.detach().cpu().tolist())
+            return preds_out, labels_out
+
+        train_predictions, train_labels = _predict_mean(train_dataloader)
+        valid_predictions, valid_labels = _predict_mean(valid_dataloader)
+        test_predictions, test_labels = _predict_mean(test_dataloader)
+    else:
+        train_predictions, train_labels = predict(model, train_dataloader)
+        valid_predictions, valid_labels = predict(model, valid_dataloader)
+        test_predictions, test_labels = predict(model, test_dataloader)
 
     with open(result_file, "wb") as f:
         pickle.dump(((train_predictions, train_labels), (valid_predictions, valid_labels), (test_predictions, test_labels)), f)
@@ -289,7 +371,7 @@ if __name__ == "__main__":
     parser.add_argument("--out-folder", type=Path, required=True, help="Output folder to save results.")
     parser.add_argument("--model-name", type=str, required=True, help="Name of the ESM model to use.")
     parser.add_argument("--unfreeze", type=int, nargs="+", required=True, help="Unfreeze layers [start, stop). If stop is omitted, unfreezes from start to the last layer. ""Example: --unfreeze 30 33 or --unfreeze 30")
-    parser.add_argument("--task", type=str, choices=["regression", "binary", "class"], required=True, help="Type of prediction task.")
+    parser.add_argument("--task", type=str, choices=["regression", "regression_gauss", "binary", "class"], required=True, help="Type of prediction task.")
     parser.add_argument("--force", action="store_true", help="Force re-computation even if results exist.")
     parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate for optimizer.")
     args = parser.parse_args()
