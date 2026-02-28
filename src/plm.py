@@ -4,6 +4,7 @@ from pathlib import Path
 from argparse import ArgumentParser
 import sys
 
+from tokenizers import Tokenizer
 import torch
 import numpy as np
 import pandas as pd
@@ -11,7 +12,9 @@ from tqdm import tqdm
 from esm.models.esmc import ESMC
 from esm.tokenization import EsmSequenceTokenizer
 from esm.sdk.api import ESMProtein, LogitsConfig
-from transformers import AutoModel, AutoTokenizer, T5EncoderModel, T5Model, T5Tokenizer, AutoConfig
+from transformers import AutoModel, AutoTokenizer, T5Tokenizer, AutoConfig, AutoModelForCausalLM
+
+from src.viz.constants import LAYERS
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 AA_OHE = {
@@ -28,6 +31,14 @@ PLM_MODELS = {
     "esm-t36": "facebook/esm2_t36_3B_UR50D",
     "ankh-base": "ElnaggarLab/ankh-base",
     "ankh-large": "ElnaggarLab/ankh-large",
+
+    "progen2-small": "hugohrban/progen2-small",
+    "progen2-medium": "hugohrban/progen2-medium",
+    "progen2-large": "hugohrban/progen2-large",
+    "rita-small": "lightonai/RITA_s",
+    "rita-medium": "lightonai/RITA_m",
+    "rita-large": "lightonai/RITA_l",
+    "rita-xlarge": "lightonai/RITA_xl",
 }
 
 
@@ -233,6 +244,117 @@ def run_prott5(data_path: Path, output_path: Path, aa_level: bool = False, empty
         del embedding_repr
 
 
+def run_progen2(model_name: str, data_path: Path, output_path: Path, aa_level: bool = False, empty: bool = False, force: bool = False) -> None:
+    """
+    Run ProGen2 model to extract embeddings for sequences in the given data path.
+
+    Args:
+        model_name: Name of the ProGen2 model to use.
+        data_path: Path to the CSV file containing sequences.
+        output_path: Path to save the extracted embeddings.
+        aa_level: Whether to save amino acid level embeddings or mean pooled embeddings.
+        empty: Whether to use an untrained model.
+        force: Whether to overwrite existing embeddings.
+    """
+    for i in range(LAYERS[model_name] + 1):
+        (output_path / f"layer_{i}").mkdir(parents=True, exist_ok=True)
+    
+    data = pd.read_csv(data_path)
+
+    tokenizer = Tokenizer.from_pretrained(PLM_MODELS[model_name])
+    if not empty:
+        model = AutoModelForCausalLM.from_pretrained(PLM_MODELS[model_name], trust_remote_code=True).to(DEVICE).eval()
+    else:
+        raise NotImplementedError("Empty ProGen2 model is not implemented.")
+    
+    for idx, seq in tqdm(data[["ID", "sequence"]].values):
+        if not force and (output_path / "layer_0" / f"{idx}.pkl").exists():
+            continue
+        input_ids = torch.tensor(tokenizer.encode(f"1{seq[:1022]}2").ids).to(DEVICE)
+        with torch.no_grad():
+            outputs = model(input_ids, output_hidden_states=True)
+            del input_ids
+        for i, layer in enumerate(outputs.hidden_states):
+            with open(output_path / f"layer_{i}" / f"{idx}.pkl", "wb") as f:
+                save_embeddings(layer[0, 1:-1].cpu().numpy(), aa_level, f)
+        del outputs
+
+
+def run_rita(model_name: str, data_path: Path, output_path: Path, aa_level: bool = False, empty: bool = False, force: bool = False) -> None:
+    """
+    Run RITA model to extract embeddings for sequences in the given data path.
+
+    Args:
+        model_name: Name of the RITA model to use.
+        data_path: Path to the CSV file containing sequences.
+        output_path: Path to save the extracted embeddings.
+        aa_level: Whether to save amino acid level embeddings or mean pooled embeddings.
+        empty: Whether to use an untrained model.
+        force: Whether to overwrite existing embeddings.
+    """
+    for i in range(LAYERS[model_name] + 1):
+        (output_path / f"layer_{i}").mkdir(parents=True, exist_ok=True)
+
+    data = pd.read_csv(data_path)
+
+    tokenizer = AutoTokenizer.from_pretrained(PLM_MODELS[model_name], trust_remote_code=True)
+    if not empty:
+        model = AutoModelForCausalLM.from_pretrained(PLM_MODELS[model_name], trust_remote_code=True).to(DEVICE).eval()
+    else:
+        raise NotImplementedError("Empty RITA model is not implemented.")
+
+    for idx, seq in tqdm(data[["ID", "sequence"]].values):
+        if not force and (output_path / "layer_0" / f"{idx}.pkl").exists():
+            continue
+        tokens = torch.tensor(tokenizer.encode(seq[:1022])).to(DEVICE).reshape(1, -1)
+        with torch.no_grad():
+            outputs = model(tokens, output_hidden_states=True)
+            del tokens
+        for i, layer in enumerate(outputs.hidden_states):
+            with open(output_path / f"layer_{i}" / f"{idx}.pkl", "wb") as f:
+                save_embeddings(layer[0, :-1].cpu().numpy(), aa_level, f)
+        del outputs
+
+
+def run_protgpt2(data_path: Path, output_path: Path, empty: bool = False, force: bool = False) -> None:
+    """
+    Run ProtGPT2 model to extract embeddings for sequences in the given data path.
+
+    Args:
+        data_path: Path to the CSV file containing sequences.
+        output_path: Path to save the extracted embeddings.
+        aa_level: Whether to save amino acid level embeddings or mean pooled embeddings.
+        empty: Whether to use an untrained model.
+        force: Whether to overwrite existing embeddings.
+    """
+    num_layers = 36
+    for i in range(num_layers + 1):
+        (output_path / f"layer_{i}").mkdir(parents=True, exist_ok=True)
+
+    data = pd.read_csv(data_path)
+
+    tokenizer = AutoTokenizer.from_pretrained("nferruz/ProtGPT2", trust_remote_code=True)
+    if not empty:
+        model = AutoModelForCausalLM.from_pretrained("nferruz/ProtGPT2", trust_remote_code=True).to(DEVICE).eval()
+    else:
+        raise NotImplementedError("Empty ProtGPT2 model is not implemented.")
+
+    for idx, seq in tqdm(data[["ID", "sequence"]].values):
+        if not force and (output_path / "layer_0" / f"{idx}.pkl").exists():
+            continue
+        tokens = torch.tensor(tokenizer.encode(seq[:1022])).to(DEVICE).reshape(1, -1)
+        with torch.no_grad():
+            outputs = model(
+                input_ids=tokens,
+                output_hidden_states=True,
+            )
+            del tokens
+        for i, layer in enumerate(outputs.hidden_states):
+            with open(output_path / f"layer_{i}" / f"{idx}.pkl", "wb") as f:
+                save_embeddings(layer[0].cpu().numpy(), False, f)
+        del outputs
+
+
 def run_ohe(data_path: Path, output_path: Path, aa_level: bool = False, empty: bool = False, force: bool = False) -> None:
     """
     One-hot encode sequences and save them to the output path.
@@ -325,6 +447,12 @@ if __name__ == "__main__":
         run_prott5(args.data_path, args.output_path, args.aa_level, args.empty, args.force)
     elif "prostt5" in args.model_name:
         run_prostt5(args.data_path, args.output_path, args.aa_level, args.empty, args.force)
+    elif "progen" in args.model_name:
+        run_progen2(args.model_name, args.data_path, args.output_path, args.aa_level, args.empty, args.force)
+    elif "rita" in args.model_name:
+        run_rita(args.model_name, args.data_path, args.output_path, args.aa_level, args.empty, args.force)
+    elif "protgpt2" in args.model_name:
+        run_protgpt2(args.data_path, args.output_path, args.empty, args.force)
     elif "ohe" in args.model_name:
         run_ohe(args.data_path, args.output_path, args.aa_level, args.empty, args.force)
     else:
