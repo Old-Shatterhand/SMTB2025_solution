@@ -34,9 +34,9 @@ class GlobalProbe(nn.Module):
         self.weight_norm = nn.Softmax(dim=0)
         self.linear = nn.Linear(input_dim, num_outputs)
         self.head = None
-        if task == "multi-class":
-            self.head = nn.Softmax(dim=1)
-        elif task == "multi-label":
+        # if task == "multi-class":
+        #     self.head = nn.Softmax(dim=1)
+        if task == "multi-label":
             self.head = nn.Sigmoid()
 
     def forward(self, batch: list[torch.Tensor]) -> torch.Tensor:
@@ -115,7 +115,30 @@ class GlobalDataset(Dataset):
         return self.data[0].shape[1]
 
 
-def validation_loop(model: torch.nn.Module, dataloader: torch.utils.data.DataLoader, loss_fn: torch.nn.Module) -> float:
+def calc_loss(loss_fn, predictions: torch.Tensor, targets: torch.Tensor, task: Literal["regression", "binary", "multi-class", "multi-label"]) -> torch.Tensor:
+    """Calculates the loss between predictions and targets based on the specified task type.
+    
+    Args:
+        predictions (torch.Tensor): The predicted outputs from the model.
+        targets (torch.Tensor): The true labels for the samples.
+        task (Literal["regression", "binary", "multi-class", "multi-label"]): The type of prediction task being performed, which determines the loss function used during training.
+
+    Returns:
+        torch.Tensor: The calculated loss value.
+    """
+    if task == "binary":
+        return loss_fn(predictions.squeeze(), targets)
+    if task == "multi-class":
+        return loss_fn(predictions, targets.long())
+    return loss_fn(predictions, targets)
+
+
+def validation_loop(
+        model: torch.nn.Module, 
+        dataloader: torch.utils.data.DataLoader, 
+        loss_fn: torch.nn.Module,
+        task: Literal["regression", "binary", "multi-class", "multi-label"] = "regression"
+    ) -> float:
     """Runs the validation process and calculates average loss.
     
     Args:
@@ -132,7 +155,7 @@ def validation_loop(model: torch.nn.Module, dataloader: torch.utils.data.DataLoa
     with torch.no_grad(): # Disable gradient calculations during validation
         for batch, targets in dataloader:
             predictions = model(batch)
-            loss = loss_fn(predictions, targets.reshape(predictions.shape))
+            loss = calc_loss(loss_fn, predictions, targets, task)
             val_loss += loss.item() * targets.size(0)
             samples += targets.size(0)
 
@@ -146,7 +169,8 @@ def train_loop(
         val_dataloader: torch.utils.data.DataLoader, 
         loss_fn: torch.nn.Module, 
         optimizer: torch.optim.Optimizer, 
-        epochs: int
+        epochs: int,
+        task: Literal["regression", "binary", "multi-class", "multi-label"] = "regression"
     ) -> tuple[np.ndarray | None, dict[str, list[float]]]:
     """Runs the selective fine-tuning process with validation.
     
@@ -177,7 +201,7 @@ def train_loop(
             optimizer.zero_grad()
 
             predictions = model(batch)
-            loss = loss_fn(predictions, targets.reshape(predictions.shape))
+            loss = calc_loss(loss_fn, predictions, targets, task)
 
             loss.backward()
             optimizer.step()
@@ -189,7 +213,7 @@ def train_loop(
         losses["train"].append(avg_train_loss)
         
         # Run Validation after each epoch
-        avg_val_loss = validation_loop(model, val_dataloader, loss_fn)
+        avg_val_loss = validation_loop(model, val_dataloader, loss_fn, task)
         losses["val"].append(avg_val_loss)
 
         end_time = time.time()
@@ -213,7 +237,10 @@ def routine(
         embed_dir: Path,
         num_layers: int,
         num_outputs: int,
-        task: Literal["regression", "binary", "class"], 
+        task: Literal["regression", "binary", "class"],
+        level: str | None = None,
+        top: int | None = None,
+        min_: int | None = None,
     ) -> None:
     """Main routine to run the global probing process.
     
@@ -225,15 +252,17 @@ def routine(
         task (Literal["regression", "binary", "class"]): The type of prediction task being performed, which determines the loss function used during training.
     """
     dataset_name = data_path.stem
-    df, label, val_name, _, _ = prepare_dataset(dataset_name, data_path, max_rows=100)
+    df, label, val_name, _, _ = prepare_dataset(dataset_name, data_path, None, level, top, min_, max_rows=100)
+    if level is not None:
+        num_outputs = df[label].max() + 1
     train_dataset = GlobalDataset(df, "train", embed_dir, num_layers, label, device=DEVICE)
     valid_dataset = GlobalDataset(df, val_name, embed_dir, num_layers, label, device=DEVICE)
     weights, losses = [], []
     loss_fn = lambda preds, targets: torch.sqrt(torch.nn.MSELoss()(preds, targets))
     if task == "binary":
-        loss = torch.nn.BCEWithLogitsLoss()
+        loss_fn = torch.nn.BCEWithLogitsLoss()
     elif task == "multi-class" or task == "multi-label":
-        loss = torch.nn.CrossEntropyLoss()
+        loss_fn = torch.nn.CrossEntropyLoss()
     
     for curr_max_layer in range(1, num_layers + 1):
         print(f"\n=== Training with up to layer {curr_max_layer} ===")
@@ -246,7 +275,7 @@ def routine(
         model = GlobalProbe(train_dataset.embed_dim(), num_outputs, curr_max_layer, task).to(DEVICE)
         optimizer = torch.optim.Adam([{'params': list(filter(lambda p: p.requires_grad, model.parameters())), 'lr': 0.0001}])
 
-        epoch_weights, epoch_losses = train_loop(model, train_dataloader, valid_dataloader, loss_fn, optimizer, epochs=100)
+        epoch_weights, epoch_losses = train_loop(model, train_dataloader, valid_dataloader, loss_fn, optimizer, epochs=100, task=task)
         weights.append(epoch_weights)
         losses.append(epoch_losses)
     
@@ -261,6 +290,15 @@ if __name__ == "__main__":
     parser.add_argument("--embed-path", type=Path, required=True, help="Output folder to save results.")
     parser.add_argument("--num-layers", type=int, required=True, help="Number of layers in the model to consider for probing.")
     parser.add_argument("--num-outputs", type=int, required=True, help="Number of output classes for classification tasks or 1 for regression.")
+    parser.add_argument('--level', type=str, default=None, choices=["superfamily", "fold"], 
+                        help='Level of SCOPe hierarchy to consider. ' \
+                        'Only used for SCOPe fold/superfamily prediction.')
+    parser.add_argument('--top', type=int, default=None, 
+                        help='Number of top labels to consider. ' \
+                        'Only used for SCOPe fold/superfamily prediction, mutually exclusive with --min.')
+    parser.add_argument('--min', type=int, default=None, 
+                        help="Minimum number of samples for a label to be included. " \
+                        "Only used for SCOPe fold/superfamily prediction, mutually exclusive with --top.")
     parser.add_argument("--task", type=str, choices=["regression", "binary", "multi-class", "multi-label"], required=True, help="Type of prediction task.")
     args = parser.parse_args()
 
@@ -269,5 +307,8 @@ if __name__ == "__main__":
         embed_dir=args.embed_path,
         num_layers=args.num_layers,
         num_outputs=args.num_outputs,
+        level=args.level,
+        top=args.top,
+        min_=args.min,
         task=args.task
     )
