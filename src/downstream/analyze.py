@@ -21,8 +21,6 @@ from cuml.neighbors import KNeighborsClassifier as kNN_class, KNeighborsRegresso
 from src.downstream.utils import compute_id_2NN, return_data_overlap
 
 
-N_ROWS = 300
-
 MAP = {
     2: ["X", "M"],
     3: ["H", "E", "C"],
