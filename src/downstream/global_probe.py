@@ -13,6 +13,7 @@ from torch import nn
 from torch.utils.data import Dataset, DataLoader
 
 from src.downstream.analyze import build_wp_dataloader, prepare_dataset
+from src.viz.utils_general import compute_metric
 
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -133,12 +134,30 @@ def calc_loss(loss_fn, predictions: torch.Tensor, targets: torch.Tensor, task: L
     return loss_fn(predictions, targets)
 
 
+def calc_performance(predictions: torch.Tensor, targets: torch.Tensor, task: Literal["regression", "binary", "multi-class", "multi-label"]) -> tuple[float, float]:
+    """Calculates the performance metric (e.g., accuracy or R^2) based on the specified task type.
+    
+    Args:
+        predictions (torch.Tensor): The predicted outputs from the model.
+        targets (torch.Tensor): The true labels for the samples.
+        task (Literal["regression", "binary", "multi-class", "multi-label"]): The type of prediction task being performed, which determines the performance metric used during evaluation.
+
+    Returns:
+        float: The calculated performance metric value.
+    """
+    if task == "regression":
+        return compute_metric(predictions.detach().cpu().numpy(), targets.detach().cpu().numpy(), metric="mse", task=task), \
+               compute_metric(predictions.detach().cpu().numpy(), targets.detach().cpu().numpy(), metric="rmse", task=task)
+    return compute_metric(predictions.detach().cpu().numpy(), targets.detach().cpu().numpy(), metric="mcc", task=task), \
+           compute_metric(predictions.detach().cpu().numpy(), targets.detach().cpu().numpy(), metric="auroc", task=task)
+
+
 def validation_loop(
         model: torch.nn.Module, 
         dataloader: torch.utils.data.DataLoader, 
         loss_fn: torch.nn.Module,
         task: Literal["regression", "binary", "multi-class", "multi-label"] = "regression"
-    ) -> float:
+    ) -> tuple[float, float, float]:
     """Runs the validation process and calculates average loss.
     
     Args:
@@ -150,7 +169,7 @@ def validation_loop(
         float: The average validation loss across all batches.
     """
     model.eval()
-    val_loss, samples = 0, 0
+    val_loss, perf1, perf2, samples = 0, 0, 0, 0
     
     with torch.no_grad(): # Disable gradient calculations during validation
         for batch, targets in dataloader:
@@ -159,8 +178,11 @@ def validation_loop(
             val_loss += loss.item() * targets.size(0)
             samples += targets.size(0)
 
-    avg_val_loss = val_loss / samples
-    return avg_val_loss
+            tmp_pref1, tmp_perf2 = calc_performance(predictions, targets, task)
+            perf1 += tmp_pref1 * targets.size(0)
+            perf2 += tmp_perf2 * targets.size(0)
+
+    return val_loss / samples, perf1 / samples, perf2 / samples
 
 
 def train_loop(
@@ -171,7 +193,7 @@ def train_loop(
         optimizer: torch.optim.Optimizer, 
         epochs: int,
         task: Literal["regression", "binary", "multi-class", "multi-label"] = "regression"
-    ) -> tuple[np.ndarray | None, dict[str, list[float]]]:
+    ) -> tuple[np.ndarray | None, dict[str, list[float]], dict[str, list[float]]]:
     """Runs the selective fine-tuning process with validation.
     
     Args:
@@ -191,6 +213,7 @@ def train_loop(
     best_val_loss = float('inf')
     best_weights = None
     losses = {"train": [], "val": []}
+    val_perfs = {"perf1": [], "perf2": []}
     epochs_without_improvement = 0
 
     for epoch in range(epochs):
@@ -213,8 +236,10 @@ def train_loop(
         losses["train"].append(avg_train_loss)
         
         # Run Validation after each epoch
-        avg_val_loss = validation_loop(model, val_dataloader, loss_fn, task)
+        avg_val_loss, perf1, perf2 = validation_loop(model, val_dataloader, loss_fn, task)
         losses["val"].append(avg_val_loss)
+        val_perfs["perf1"].append(perf1)
+        val_perfs["perf2"].append(perf2)
 
         end_time = time.time()
         print(f"Epoch {epoch + 1}/{epochs}: Train Loss = {avg_train_loss:.4f} | Val Loss = {avg_val_loss:.4f} | Time: {end_time - start_time:.2f}s")
@@ -229,7 +254,7 @@ def train_loop(
                 print(f"Early stopping triggered after {epoch + 1} epochs.")
                 break
     
-    return best_weights, losses
+    return best_weights, losses, val_perfs
 
 
 def routine(
@@ -252,12 +277,12 @@ def routine(
         task (Literal["regression", "binary", "class"]): The type of prediction task being performed, which determines the loss function used during training.
     """
     dataset_name = data_path.stem
-    df, label, val_name, _, _ = prepare_dataset(dataset_name, data_path, None, level, top, min_, max_rows=100)
+    df, label, val_name, _, _ = prepare_dataset(dataset_name, data_path, None, level, top, min_)
     if level is not None:
         num_outputs = df[label].max() + 1
     train_dataset = GlobalDataset(df, "train", embed_dir, num_layers, label, device=DEVICE)
     valid_dataset = GlobalDataset(df, val_name, embed_dir, num_layers, label, device=DEVICE)
-    weights, losses = [], []
+    weights, losses, perfs = [], [], []
     loss_fn = lambda preds, targets: torch.sqrt(torch.nn.MSELoss()(preds, targets))
     if task == "binary":
         loss_fn = torch.nn.BCEWithLogitsLoss()
@@ -275,13 +300,14 @@ def routine(
         model = GlobalProbe(train_dataset.embed_dim(), num_outputs, curr_max_layer, task).to(DEVICE)
         optimizer = torch.optim.Adam([{'params': list(filter(lambda p: p.requires_grad, model.parameters())), 'lr': 0.0001}])
 
-        epoch_weights, epoch_losses = train_loop(model, train_dataloader, valid_dataloader, loss_fn, optimizer, epochs=100, task=task)
+        epoch_weights, epoch_losses, epoch_val_perfs = train_loop(model, train_dataloader, valid_dataloader, loss_fn, optimizer, epochs=100, task=task)
         weights.append(epoch_weights)
         losses.append(epoch_losses)
+        perfs.append(epoch_val_perfs)
     
     print("\n".join([str(list(scipy.special.softmax(x))) for x in weights]))
     with open(embed_dir / f"probe_weights_{dataset_name}_{num_outputs}.pkl", "wb") as f:
-        pickle.dump((weights, losses), f)
+        pickle.dump((weights, losses, perfs), f)
 
 
 if __name__ == "__main__":

@@ -1,13 +1,10 @@
 from pathlib import Path
-from typing import Literal
 
 import numpy as np
 import pandas as pd
-from sklearn.metrics import matthews_corrcoef, roc_auc_score, accuracy_score
 
-from src.downstream.utils import multioutput_mcc
-from src.viz.constants import LAYERS, MODEL_COLORS, MODELS
-from src.viz.utils_general import read_pca_metric
+from src.viz.constants import LAYERS, MODEL_COLORS, MODEL_MARKERS, MODELS
+from src.viz.utils_general import compute_metric, read_pca_metric
 
 
 def compute_scope_performance(
@@ -24,21 +21,7 @@ def compute_scope_performance(
     assert (k is not None) != (min_x is not None), "Exactly one of k and min_x must be provided."
     with open(root / "embeddings" / model / dataset / f"layer_{layer}" / f"predictions_{algo}_{level}_{k if k is not None else f'min{min_x}'}.pkl", "rb") as f:
         y_hat, y = pd.read_pickle(f)[1]
-    match metric.lower():
-        case "mcc":
-            if y_hat.ndim == 3:  # multilabel
-                return multioutput_mcc(y, np.array(y_hat)[:, :, 1].T)
-            if y_hat.ndim == 2:
-                return matthews_corrcoef(y, y_hat.argmax(axis=1))
-            return matthews_corrcoef(y, y_hat > 0.5)
-        case "auroc":
-            if y_hat.ndim == 3:  # multilabel
-                return roc_auc_score(y, np.array(y_hat)[:, :, 1].T, multi_class="ovr")
-            return roc_auc_score(y, y_hat, multi_class="ovr")
-        case "acc":
-            return accuracy_score(y, y_hat)
-        case _:
-            raise ValueError(f"Unknown metric: {metric}")
+    return compute_metric(np.array(y_hat), np.array(y), metric, task="multi-class")
 
 
 # Unused
@@ -112,18 +95,21 @@ def read_metric(root: Path, model, layer, metric, filename):
 
 def plot_scope_minx_performance(ax, root, algorithm, metric, level, model_prefix, relative: bool = True, colored: bool | str = True, title: str | None = None):
     for model in MODELS[:-1]:
-        perfs = []
-        for layer in range(LAYERS[model] + 1):
-            result = compute_scope_performance(root, model_prefix + model, "scope_40_208", layer, algorithm, metric, level, min_x=10)
-            perfs.append(result)
-        if relative:
-            ax.plot(np.arange(0, 1 + 1e-5, 1 / (LAYERS[model])), perfs, label=model_prefix + model, color=MODEL_COLORS.get(model, None) if colored == True else colored)
-        else:
-            ax.plot(perfs, label=model_prefix + model, color=MODEL_COLORS.get(model, None) if colored == True else colored)
-    
+        perfs = [compute_scope_performance(root, model_prefix + model, "scope_40_208", layer, algorithm, metric, level, min_x=10) for layer in range(LAYERS[model] + 1)]
+        if sum([abs(p) for p in perfs]) == 0:  # drop performances that are 0 throughout
+            continue
+        ax.plot(
+            np.arange(0, 1 + 1e-5, 1 / (LAYERS[model])) if relative else np.arange(LAYERS[model] + 1), 
+            perfs, 
+            label=model_prefix + model, 
+            color=MODEL_COLORS.get(model, None) if colored == True else colored, 
+            marker=MODEL_MARKERS.get(model, None) if colored == True else None
+        )
+
     ax.set_xlabel(("Relative" if relative else "Absolute") + " Layer")
     ax.set_ylabel(metric.upper())
     ax.set_title(title or f"{metric.upper()} of {algorithm.upper()} heads")
+    ax.set_ylim(bottom=-0.05, top=1.05)
 
 
 def plot_scope_minx_metric(ax, root, metric, level, model_prefix, relative):
@@ -145,12 +131,14 @@ def plot_scope_minx_metric(ax, root, metric, level, model_prefix, relative):
             if metric.startswith("noverlap"):
                 x_ticks = x_ticks[:-1]
                 x_ticks += 1 / (2 * LAYERS[model])
-            ax.plot(x_ticks, perfs, label=model_prefix + model, color=MODEL_COLORS.get(model, None))
+            ax.plot(x_ticks, perfs, label=model_prefix + model, color=MODEL_COLORS.get(model, None), marker=MODEL_MARKERS.get(model, None))
         else:
-            ax.plot(perfs, label=model_prefix + model, color=MODEL_COLORS.get(model, None))
+            ax.plot(perfs, label=model_prefix + model, color=MODEL_COLORS.get(model, None), marker=MODEL_MARKERS.get(model, None))
     
     if metric == "5dvol":
         ax.set_yscale("log")
     ax.set_xlabel(("Relative" if relative else "Absolute") + " Layer")
     ax.set_ylabel(title_map.get(metric, metric))
     ax.set_title(title_map.get(metric, metric))
+    if metric not in {"ids", "density", "5dvol"}:
+        ax.set_ylim(bottom=-0.05, top=1.05)

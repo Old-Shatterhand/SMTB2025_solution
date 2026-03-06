@@ -215,11 +215,11 @@ def train_lr_head(
     if task == "regression":
         model = cuml.LinearRegression(output_type="numpy").fit(train_X, train_y)
     elif task == "binary":
-        model = cuml.LogisticRegression(output_type="numpy").fit(train_X, train_y)
+        model = cuml.LogisticRegression(output_type="numpy", class_weight="balanced").fit(train_X, train_y)
     elif task == "multi-class":
-        model = MultiOutputClassifier(cuml.LogisticRegression(output_type="numpy"), n_jobs=1).fit(train_X, train_y.reshape(-1, 1))
+        model = MultiOutputClassifier(cuml.LogisticRegression(output_type="numpy", class_weight="balanced"), n_jobs=1).fit(train_X, train_y.reshape(-1, 1))
     elif task == "multi-label":
-        model = MultiOutputClassifier(cuml.LogisticRegression(output_type="numpy"), n_jobs=1).fit(train_X, train_y)
+        model = MultiOutputClassifier(cuml.LogisticRegression(output_type="numpy", class_weight="balanced"), n_jobs=1).fit(train_X, train_y)
 
     print("Evaluating LR model")
     if task == "regression":
@@ -236,10 +236,9 @@ def train_lr_head(
 
 
 def prepare_dataset(
-        dataset_name, 
-        data_path, 
-        n_classes=None, 
-        k: int = 0, 
+        dataset_name: Path, 
+        data_path: Path, 
+        n_classes: int | None = None, 
         level: str | None = None, 
         top: int | None = None, 
         min_: int | None = None,
@@ -279,8 +278,14 @@ def prepare_dataset(
             labels = level
         if dataset_name == "deeploc2":
             labels = ["Cytoplasm", "Nucleus", "Extracellular", "Cell membrane", "Mitochondrion", "Plastid", "Endoplasmic reticulum", "Lysosome/Vacuole", "Golgi apparatus", "Peroxisome"]
-    model_suffix = "_" + "_".join(map(str, model_suffix))
-    space_suffix = "_" + "_".join(map(str, space_suffix))
+    
+    model_suffix = "_".join(map(str, model_suffix))
+    if len(model_suffix) != 0:
+        model_suffix = "_" + model_suffix
+    space_suffix = "_".join(map(str, space_suffix))
+    if len(space_suffix) != 0:
+        space_suffix = "_" + space_suffix
+    
     return df, labels, val_name, model_suffix, space_suffix
 
 
@@ -297,7 +302,7 @@ def main(args):
     torch.manual_seed(args.seed)
 
     df, labels, val_name, model_suffix, space_suffix = prepare_dataset(
-        dataset, args.data_path, args.n_classes, args.k, args.level, args.top, args.min
+        dataset, args.data_path, args.n_classes, args.level, args.top, args.min
     )
     calcs = set(args.calcs)
 
