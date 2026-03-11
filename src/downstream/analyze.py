@@ -306,10 +306,10 @@ def main(args):
 
     # Load the first layer embeddings
     print(f"[{time() - start:.2f}s] Loading layer 0 embeddings...")
-    curr_train_X, curr_train_y = build_dataloader(df[df["split"] == "train"], args.embed_base / "layer_0", labels)
+    curr_train_X, curr_train_y = build_dataloader(df[df["split"] == "train"], args.embed_base / f"layer_{args.start_layer}", labels)
     if {'knn', 'id', 'no', 'lr'}.intersection(calcs):
-        curr_val_X, curr_val_y = build_dataloader(df[df["split"] == val_name], args.embed_base / "layer_0", labels)
-        curr_test_X, curr_test_y = build_dataloader(df[df["split"] == "test"], args.embed_base / "layer_0", labels)
+        curr_val_X, curr_val_y = build_dataloader(df[df["split"] == val_name], args.embed_base / f"layer_{args.start_layer}", labels)
+        curr_test_X, curr_test_y = build_dataloader(df[df["split"] == "test"], args.embed_base / f"layer_{args.start_layer}", labels)
 
     if {'knn', 'id', 'no'}.intersection(calcs):
         print(f"[{time() - start:.2f}s] Fitting kNN on layer 0 ...")
@@ -342,7 +342,7 @@ def main(args):
             force=args.force
         )
     
-    for layer in range(args.max_layer + 1):
+    for layer in range(args.start_layer, args.max_layer + 1):
         print(f"[{time() - start:.2f}s] Processing layer {layer} ...")
         result_folder = base_result_folder / f"layer_{layer}"
         (base_result_folder / f"layer_{layer + 1}").mkdir(parents=True, exist_ok=True)
@@ -448,5 +448,6 @@ if __name__ == "__main__":
                         '[pca]: Compute eigenvectors from PCA.')
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
     parser.add_argument('--force', action='store_true', help='Force recomputation even if results exist')
+    parser.add_argument('--start-layer', type=int, default=0, help='Layer to start the analysis from')
     args = parser.parse_args()
     main(args)
