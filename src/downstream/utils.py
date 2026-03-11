@@ -1,6 +1,7 @@
 import numpy as np
 from scipy.optimize import curve_fit
 from sklearn.metrics import matthews_corrcoef
+import pickle
 
 
 def compute_id_2NN(distances: np.ndarray) -> float:
@@ -19,6 +20,8 @@ def compute_id_2NN(distances: np.ndarray) -> float:
     """
     distances = distances[distances[:, 1] > 0]
     N = distances.shape[0]
+    if N <= 1:
+        return 0.0
     mus = distances[:, 2] / distances[:, 1]
     n_eff = int(N * 0.9)
     log_mus_reduced = np.sort(np.log(mus))[:n_eff]
