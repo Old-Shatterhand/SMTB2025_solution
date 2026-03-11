@@ -4,8 +4,19 @@ from typing import Literal
 SPLIT = "valid"
 SPLIT_ID = {"train": 0, "valid": 1, "test": 2}[SPLIT]
 
-MODELS = ["esm_t6", "esm_t12", "esm_t30", "esm_t33", "esm_t36", "esmc_300m", "esmc_600m", "ankh_base", "ankh_large", "prostt5", "prott5", "progen2_small", "progen2_medium", "progen2_large", "ohe"]
-DATASETS = ["fluorescence", "fluorescence_classification", "stability", "deeploc2", "deeploc2_bin", "meltome_atlas"]  # , "esol"
+MODELS = ["esm_t6", "esm_t12", "esm_t30", "esm_t33", "esm_t36", "esmc_300m", "esmc_600m", "ankh_base", "ankh_large", "prostt5", "prott5", "progen2_small", "progen2_medium", "progen2_large", "protgpt2"]
+WP_DATASETS = ["fluorescence", "fluorescence_classification", "stability", "deeploc2", "deeploc2_bin", "meltome_atlas", "scope_40_208"]
+AA_DATASETS = ["binding", "scope_40_208"]
+LAST_PROTEIN = {
+    "stability": "P68976",
+    "fluorescence": "P54024",
+    "fluorescence_classification": "P54024",
+    "deeploc2": "P28302",
+    "deeploc2_bin": "P28302",
+    "meltome_atlas": "P69276",
+    "scope_40_208": "P15176",
+}
+
 LAYERS = {
     "esm_t6": 6,
     "esm_t12": 12,
@@ -21,10 +32,6 @@ LAYERS = {
     "progen2_small": 12,
     "progen2_medium": 27,
     "progen2_large": 32,
-    "rita_small": 12,
-    "rita_medium": 24,
-    "rita_large": 24,
-    "rita_xlarge": 24,
     "protgpt2": 36,
     "ohe": 0,
 }
@@ -41,10 +48,10 @@ MODEL_COLORS = {
     "ankh_large": "green",
     "prott5": "darkorange",
     "prostt5": "darkorange",
-    "progen2_small": "yellow",
-    "progen2_medium": "yellow",
-    "progen2_large": "yellow",
-    "protgpt2": "purple",
+    "progen2_small": "darkred",
+    "progen2_medium": "darkred",
+    "progen2_large": "darkred",
+    "protgpt2": "violet",
     "ohe": "gray",
 }
 

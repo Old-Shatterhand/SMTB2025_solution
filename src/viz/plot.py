@@ -7,8 +7,8 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import Rectangle
 
 from src.viz.constants import DS_NAME_MAP, ROOT, REG_METRIC, CLASS_METRIC, MODELS, kill_axis, DATASET2TASK
-from src.viz.utils_general import plot_dataset_finetune_comparison, plot_performance, plot_metric
-from src.viz.utils_scope import plot_scope_minx_performance, plot_scope_minx_metric
+from src.viz.utils_general import compute_performance, plot_dataset_finetune_comparison, plot_performance, plot_metric
+from src.viz.utils_scope import compute_scope_performance, plot_scope_minx_performance, plot_scope_minx_metric
 
 
 def plot_empty(algo: Literal["lr", "knn"] = "lr"):
@@ -84,7 +84,7 @@ def plot_dataset_analysis(dataset: str, prefix: str = ""):
     plot_metric(axs[4], ROOT, dataset, model_prefix=prefix, metric="var@10", relative=True, legend=False)
     plot_metric(axs[5], ROOT, dataset, model_prefix=prefix, metric="ids", relative=True, legend=False)
 
-    handles, labels = axs[0].get_legend_handles_labels()
+    handles, labels = axs[1].get_legend_handles_labels()
     handles.insert(5, Rectangle((0, 0), 1, 1, fc="w", fill=False, edgecolor='none', linewidth=0))  #plt.Line2D([0], [0], color="black", lw=0, label="OHE"))
     labels.insert(5, "")
     fig.legend(handles, labels, loc="lower center", bbox_to_anchor=(0.5, 0), bbox_transform=fig.transFigure, ncol=(len(MODELS) + 1) // 2)  # -0.08
@@ -110,7 +110,7 @@ def plot_scope_analysis(level: str, prefix: str = ""):
     plot_scope_minx_metric(axs[4], ROOT, "var@10", level, model_prefix=prefix, relative=True)
     plot_scope_minx_metric(axs[5], ROOT, "ids", level, model_prefix=prefix, relative=True)
 
-    handles, labels = axs[0].get_legend_handles_labels()
+    handles, labels = axs[1].get_legend_handles_labels()
     handles.insert(5, Rectangle((0, 0), 1, 1, fc="w", fill=False, edgecolor='none', linewidth=0))  #plt.Line2D([0], [0], color="black", lw=0, label="OHE"))
     labels.insert(5, "")
     fig.legend(handles, labels, loc="lower center", bbox_to_anchor=(0.5, 0), bbox_transform=fig.transFigure, ncol=(len(MODELS) + 1) // 2)  # -0.08
@@ -130,14 +130,14 @@ def plot_aa_analysis(n_classes: int):
         fig.add_subplot(gs[1, 0]), fig.add_subplot(gs[1, 1]), fig.add_subplot(gs[1, 2]),
     ]
 
-    plot_performance(axs[0], ROOT, dataset, "lr", CLASS_METRIC, relative=True, aa=True, n_classes=n_classes)
-    plot_performance(axs[1], ROOT, dataset, "knn", CLASS_METRIC, relative=True, aa=True, n_classes=n_classes)
+    plot_performance(axs[0], ROOT, dataset, "lr", CLASS_METRIC, relative=True, aa=True, n_classes=n_classes, task="binary" if n_classes == 2 else "multi-class")
+    plot_performance(axs[1], ROOT, dataset, "knn", CLASS_METRIC, relative=True, aa=True, n_classes=n_classes, task="binary" if n_classes == 2 else "multi-class")
     plot_metric(axs[2], ROOT, dataset, metric="noverlap", relative=True, aa=True, n_classes=n_classes)
     plot_metric(axs[3], ROOT, dataset, metric="pc@95", relative=True, aa=True, n_classes=n_classes)
     plot_metric(axs[4], ROOT, dataset, metric="var@10", relative=True, aa=True, n_classes=n_classes)
     plot_metric(axs[5], ROOT, dataset, metric="ids", relative=True, aa=True, n_classes=n_classes)
     
-    handles, labels = axs[0].get_legend_handles_labels()
+    handles, labels = axs[1].get_legend_handles_labels()
     handles.insert(5, Rectangle((0, 0), 1, 1, fc="w", fill=False, edgecolor='none', linewidth=0))  #plt.Line2D([0], [0], color="black", lw=0, label="OHE"))
     labels.insert(5, "")
     fig.legend(handles, labels, loc="lower center", bbox_to_anchor=(0.5, 0), bbox_transform=fig.transFigure, ncol=(len(MODELS) + 1) // 2)  # -0.08
@@ -185,7 +185,7 @@ def plot_dataset_comp(dataset_name: Literal["fluorescence", "deeploc2", "scope_4
     plot_performance(axs[2], ROOT, ds2, "lr", CLASS_METRIC, model_prefix="", relative=True, legend=False, aa=False, n_classes=42, task=DATASET2TASK[ds2])
     plot_performance(axs[3], ROOT, ds2, "knn", CLASS_METRIC, model_prefix="", relative=True, legend=False, aa=False, n_classes=42, task=DATASET2TASK[ds2])
 
-    handles, labels = axs[0].get_legend_handles_labels()
+    handles, labels = axs[1].get_legend_handles_labels()
     handles.insert(7, Rectangle((0, 0), 1, 1, fc="w", fill=False, edgecolor='none', linewidth=0))  #plt.Line2D([0], [0], color="black", lw=0, label="OHE"))
     labels.insert(7, "")
     fig.legend(handles, labels, loc="lower center", bbox_to_anchor=(0.5, 0), bbox_transform=fig.transFigure, ncol=(len(MODELS) + 1) // 5)  # -0.08
@@ -194,6 +194,30 @@ def plot_dataset_comp(dataset_name: Literal["fluorescence", "deeploc2", "scope_4
     plt.tight_layout(rect=[0, 0.09, 1, 1])
     plt.savefig(f"figures/{dataset_name}_comp.pdf")
     plt.savefig(f"figures/{dataset_name}_comp.png", transparent=True)
+
+
+def plot_scope_ssp_comp():
+    fig = plt.figure(figsize=(9, 9))
+    gs = gridspec.GridSpec(2, 2, figure=fig)
+    axs = [
+        fig.add_subplot(gs[0, 0]), fig.add_subplot(gs[0, 1]),
+        fig.add_subplot(gs[1, 0]), fig.add_subplot(gs[1, 1]),
+    ]
+
+    plot_performance(axs[0], ROOT, "scope_40_208", "lr", CLASS_METRIC, relative=True, aa=True, n_classes=3, task="multi-class")
+    plot_performance(axs[1], ROOT, "scope_40_208", "knn", CLASS_METRIC, model_prefix="", relative=True, legend=False, aa=True, n_classes=3, task="multi-class")
+    plot_performance(axs[2], ROOT, "scope_40_208", "lr", CLASS_METRIC, model_prefix="", relative=True, legend=False, aa=True, n_classes=8, task="multi-class")
+    plot_performance(axs[3], ROOT, "scope_40_208", "knn", CLASS_METRIC, model_prefix="", relative=True, legend=False, aa=True, n_classes=8, task="multi-class")
+
+    handles, labels = axs[1].get_legend_handles_labels()
+    handles.insert(7, Rectangle((0, 0), 1, 1, fc="w", fill=False, edgecolor='none', linewidth=0))  #plt.Line2D([0], [0], color="black", lw=0, label="OHE"))
+    labels.insert(7, "")
+    fig.legend(handles, labels, loc="lower center", bbox_to_anchor=(0.5, 0), bbox_transform=fig.transFigure, ncol=(len(MODELS) + 1) // 5)  # -0.08
+
+    fig.suptitle(f"Comparison of LR and kNN on the SCOPe40 2.08 3/8-class SSP datasets", fontsize=16)
+    plt.tight_layout(rect=[0, 0.09, 1, 1])
+    plt.savefig(f"figures/scope_40_208_ssp_comp.pdf")
+    plt.savefig(f"figures/scope_40_208_ssp_comp.png", transparent=True)
 
 
 def plot_olga():
@@ -242,11 +266,17 @@ def plot_finetuning_comp():
 
 if __name__ == "__main__":
     Path("figures").mkdir(parents=True, exist_ok=True)
-    plot_finetuning_comp()
+
+    print("Hello")
+    root = Path("/") / "scratch" / "SCRATCH_SAS" / "roman" / "SMTB"
+    # print(compute_scope_performance(root, "ankh_base", "scope_40_208", 35, "lr", "mcc", "superfamily", min_x=10))
+    print(compute_performance(root, "esm_t30", "deeploc2", 10, "lr", "mcc", aa=False, n_classes=10, task="multi-label"))
+
+    # plot_finetuning_comp()
     # plot_dataset_comp("fluorescence")
     # plot_dataset_comp("deeploc2")
-    # plot_dataset_analysis("deeploc2")
-    # for ds in ["deeploc2", "deeploc2_bin", "fluorescence", "fluorescence_classification", "meltome_atlas", "stability"]:
+    # plot_dataset_analysis("meltome_atlas")
+    # for ds in ["deeploc2", "fluorescence", "meltome_atlas", "stability"]:
     #     print(f"Plotting analysis for the {ds} dataset...")
     #     plot_dataset_analysis(ds)
 
@@ -270,3 +300,5 @@ if __name__ == "__main__":
     
     # print("Plotting AA analysis of 8-class SSP dataset...")
     # plot_aa_analysis(8)
+
+    # plot_scope_ssp_comp()

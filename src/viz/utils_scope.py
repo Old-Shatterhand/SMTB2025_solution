@@ -19,8 +19,15 @@ def compute_scope_performance(
         min_x=None
     ):
     assert (k is not None) != (min_x is not None), "Exactly one of k and min_x must be provided."
-    with open(root / "embeddings" / model / dataset / f"layer_{layer}" / f"predictions_{algo}_{level}_{k if k is not None else f'min{min_x}'}.pkl", "rb") as f:
-        y_hat, y = pd.read_pickle(f)[1]
+    fpath = root / "embeddings" / model / dataset / f"layer_{layer}" / f"predictions_{algo}_{level}_{k if k is not None else f'min{min_x}'}.pkl"
+    if not fpath.exists():
+        return 0
+    with open(fpath, "rb") as f:
+        try:
+            y_hat, y = pd.read_pickle(f)[1]
+        except Exception as e:
+            print(f"Error reading {fpath}: {e}")
+            return 0
     return compute_metric(np.array(y_hat), np.array(y), metric, task="multi-class")
 
 

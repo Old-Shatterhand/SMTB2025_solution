@@ -75,7 +75,10 @@ def multioutput_mcc(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     y_true = np.asarray(y_true)
     y_pred = np.asarray(y_pred)
     
-    assert y_true.shape == y_pred.shape, "Shapes of y_true and y_pred must match"
+    if y_true.shape != y_pred.shape:
+        raise ValueError(
+            f"Shape mismatch: y_true {y_true.shape} vs y_pred {y_pred.shape}"
+        )
     
     mccs = []
     for i in range(y_true.shape[1]):
@@ -87,3 +90,43 @@ def multioutput_mcc(y_true: np.ndarray, y_pred: np.ndarray) -> float:
         mccs.append(mcc)
     
     return float(np.mean(mccs))
+
+
+def multiclass_mcc(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    """
+    Compute the Matthews Correlation Coefficient (MCC) for a multiclass classification task.
+
+    Args:
+        y_true: np.ndarray of shape (n_samples,)
+        y_pred: np.ndarray of shape (n_samples,)
+    
+    Returns:
+        float: MCC for the multiclass classification
+    """
+    y_true = np.asarray(y_true)
+    y_pred = np.asarray(y_pred)
+
+    if y_true.shape != y_pred.shape:
+        raise ValueError(
+            f"Shape mismatch: y_true {y_true.shape} vs y_pred {y_pred.shape}"
+        )
+
+    classes = np.unique(y_true)
+    mcc_scores = []
+
+    for k in classes:
+        # Binarise: class k → 1 (positive), everything else → 0 (negative)
+        bt = (y_true == k).astype(int)
+        bp = (y_pred == k).astype(int)
+
+        tp = int(np.sum((bt == 1) & (bp == 1)))
+        tn = int(np.sum((bt == 0) & (bp == 0)))
+        fp = int(np.sum((bt == 0) & (bp == 1)))
+        fn = int(np.sum((bt == 1) & (bp == 0)))
+
+        denom = np.sqrt((tp + fp) * (tp + fn) * (tn + fp) * (tn + fn))
+
+        mcc_k = (tp * tn - fp * fn) / denom if denom > 0 else 0.0
+        mcc_scores.append(mcc_k)
+
+    return float(np.mean(mcc_scores))

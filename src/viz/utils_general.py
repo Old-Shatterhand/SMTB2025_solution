@@ -9,7 +9,7 @@ from scipy.stats import spearmanr
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score, matthews_corrcoef, roc_auc_score
 
 from src.viz.constants import MODEL_COLORS, MODEL_MARKERS, MODELS, SPLIT_ID, LAYERS, DATASET2TASK
-from src.downstream.utils import multioutput_mcc
+from src.downstream.utils import multioutput_mcc, multiclass_mcc
 
 
 FINETUNE_LAYERS = [0, 10, 15, 20, 22, 24, 26, 28, 30]
@@ -37,10 +37,10 @@ def compute_metric(y_hat: np.ndarray, y: np.ndarray, metric: str, task: Literal[
                     return multioutput_mcc(y.astype(int), y_hat)
             if task == "multi-class":
                 if y_hat.ndim == 3:
-                    return matthews_corrcoef(y.astype(int), y_hat[0].argmax(axis=1))
+                    return multiclass_mcc(y.astype(int), y_hat[0].argmax(axis=1))
                 if y_hat.ndim == 1:
-                    return matthews_corrcoef(y.astype(int), y_hat)
-                return matthews_corrcoef(y.astype(int), y_hat.argmax(axis=1))
+                    return multiclass_mcc(y.astype(int), y_hat)
+                return multiclass_mcc(y.astype(int), y_hat.argmax(axis=1))
             if y_hat.ndim == 2:
                 return matthews_corrcoef(y.astype(int), y_hat[:, 1] > 0.5)
             return matthews_corrcoef(y.astype(int), y_hat > 0.5)
@@ -88,27 +88,27 @@ def compute_performance(
     Returns:
         The computed performance metric.
     """
-    # try:
-    embed_dir, filename = "embeddings", f"predictions_{algo}.pkl"
-    if aa:
-        embed_dir = "aa_embeddings"
-        if dataset == "scope_40_208":
-            filename = f"predictions_{algo}_{n_classes}.pkl"
-    if filepath is None:
-        filepath = root / embed_dir / model / dataset / f"layer_{layer}" / filename
-    
-    if not filepath.exists():
+    try:
+        embed_dir, filename = "embeddings", f"predictions_{algo}.pkl"
+        if aa:
+            embed_dir = "aa_embeddings"
+            if dataset == "scope_40_208":
+                filename = f"predictions_{algo}_{n_classes}.pkl"
+        if filepath is None:
+            filepath = root / embed_dir / model / dataset / f"layer_{layer}" / filename
+        
+        if not filepath.exists():
+            return 0
+        
+        with open(filepath, "rb") as f:
+            y_hat, y = pd.read_pickle(f)[SPLIT_ID]
+            y_hat = np.array(y_hat)
+            y = np.array(y)
+        
+        return compute_metric(y_hat, y, metric, task)
+    except Exception as e:
+        print(f"Error computing performance for {model} layer {layer} on {dataset} with {algo}: {e}")
         return 0
-    
-    with open(filepath, "rb") as f:
-        y_hat, y = pd.read_pickle(f)[SPLIT_ID]
-        y_hat = np.array(y_hat)
-        y = np.array(y)
-    
-    return compute_metric(y_hat, y, metric, task)
-    # except Exception as e:
-    #     print(f"Error computing performance for {model} layer {layer} on {dataset} with {algo}: {e}")
-    #     return 0
 
 
 def plot_performance(
@@ -156,7 +156,10 @@ def plot_performance(
     ax.set_xlabel(("Relative" if relative else "Absolute") + " Layer")
     ax.set_ylabel(metric.upper())
     ax.set_title(title or f"{metric.upper()} of {algo.upper()} heads")
-    ax.set_ylim(bottom=-0.05, top=1.05)
+    if dataset == "meltome_atlas":
+        ax.set_ylim(bottom=3.95, top=8.55)
+    else:
+        ax.set_ylim(bottom=-0.05, top=1.05)
     if legend:
         ax.legend()
 
@@ -351,8 +354,3 @@ def plot_metric(
         ax.set_yscale("log")
     if legend:
         ax.legend(loc="upper right")
-
-
-if __name__ == "__main__":
-    print("Hello")
-    compute_performance(Path("/") / "scratch" / "SCRATCH_SAS" / "roman" / "SMTB", "ankh_base", "deeploc2", 10, "lr", "mcc", aa=False, n_classes=10, task="multi-label")
