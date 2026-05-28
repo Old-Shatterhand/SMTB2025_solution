@@ -3,7 +3,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from src.viz.constants import LAYERS, MODEL_COLORS, MODEL_MARKERS, MODELS
+from src.viz.constants import LAYERS, MODEL_COLORS, MODEL_MARKERS, MODEL_NAMES, MODELS
 from src.viz.utils_general import compute_metric, read_pca_metric
 
 
@@ -33,7 +33,7 @@ def compute_scope_performance(
 
 # Unused
 def plot_scope_top4_metric(ax, root, algorithm, metric, level, relative):
-    for model in MODELS[:-1]:
+    for model in MODELS:
         if model.startswith("esmc"):
             continue
         perfs = []
@@ -100,28 +100,29 @@ def read_metric(root: Path, model, layer, metric, filename):
     return df[name_map[metric]].values[0]
 
 
-def plot_scope_minx_performance(ax, root, algorithm, metric, level, model_prefix, relative: bool = True, colored: bool | str = True, title: str | None = None):
-    for model in MODELS[:-1]:
+def plot_scope_minx_performance(ax, root, algorithm, metric, level, model_prefix, relative: bool = True, colored: bool | str = True, title: str | bool | None = None, models: list[str] = MODELS):
+    for model in models:
         perfs = [compute_scope_performance(root, model_prefix + model, "scope_40_208", layer, algorithm, metric, level, min_x=10) for layer in range(LAYERS[model] + 1)]
         if sum([abs(p) for p in perfs]) == 0:  # drop performances that are 0 throughout
             continue
         ax.plot(
             np.arange(0, 1 + 1e-5, 1 / (LAYERS[model])) if relative else np.arange(LAYERS[model] + 1), 
             perfs, 
-            label=model_prefix + model, 
+            label=model_prefix + MODEL_NAMES.get(model, model), 
             color=MODEL_COLORS.get(model, None) if colored == True else colored, 
             marker=MODEL_MARKERS.get(model, None) if colored == True else None
         )
 
     ax.set_xlabel(("Relative" if relative else "Absolute") + " Layer")
     ax.set_ylabel(metric.upper())
-    ax.set_title(title or f"{metric.upper()} of {algorithm.upper()} heads")
-    ax.set_ylim(bottom=-0.05, top=1.05)
+    if not isinstance(title, bool) or title:
+        ax.set_title(title or f"{metric.upper()} of {algorithm.upper()} heads")
+    # ax.set_ylim(bottom=-0.05, top=1.05)
 
 
 def plot_scope_minx_metric(ax, root, metric, level, model_prefix, relative):
     title_map = {"ids": "Intrinsic Dimensions", "density": "Density", "noverlap": "Neighbor Overlap", "noverlap_50": "Neighbor Overlap (50)"}
-    for model in MODELS[:-1]:
+    for model in MODELS:
         perfs = []
         for layer in range(LAYERS[model] + 1):
             if metric.startswith("noverlap") and layer == LAYERS[model]:

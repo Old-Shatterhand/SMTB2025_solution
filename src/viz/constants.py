@@ -97,8 +97,39 @@ DATASET2TASK: dict[str, Literal["regression", "binary", "multi-label", "multi-cl
     "stability": "regression",
     "deeploc2": "multi-label",
     "deeploc2_bin": "binary",
-    "meltome_atlas": "multi-label",
+    "meltome_atlas": "regression",
     "binding": "binary",
     "scope_40_208": "multi-class",
     "stability": "regression",
+}
+
+MODEL_NAMES = {
+    "esm_t6": "ESM2 t6",
+    "esm_t12": "ESM2 t12",
+    "esm_t30": "ESM2 t30",
+    "esm_t33": "ESM2 t33",
+    "esm_t36": "ESM2 t36",
+    "esmc_300m": "ESMC 300M",
+    "esmc_600m": "ESMC 600M",
+    "ankh_base": "Ankh Base",
+    "ankh_large": "Ankh Large",
+    "prostt5": "ProtT5",
+    "prott5": "ProstT5",
+    "progen2_small": "Progen2 Small",
+    "progen2_medium": "Progen2 Medium",
+    "progen2_large": "Progen2 Large",
+    "protgpt2": "ProtGPT2"
+}
+DATASET_NAMES = {
+    "fluorescence": "Fluorescence",
+    "fluorescence_classification": "Fluorescence Class.",
+    "meltome_atlas": "Meltome Atlas",
+    "stability": "Stability",
+    "deeploc2": "DeepLoc2 10c",
+    "deeploc2_bin": "DeepLoc2 Bin.",
+    "scope_40_208_fold": "SCOPe40 Fold",
+    "scope_40_208_superfamily": "SCOPe40 Superfamily",
+    "scope_40_208_3ssp": "SCOPe40 3SSP",
+    "scope_40_208_8ssp": "SCOPe40 8SSP",
+    "binding": "Binding"
 }

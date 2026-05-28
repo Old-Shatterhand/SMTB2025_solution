@@ -2,13 +2,14 @@ import pickle
 from pathlib import Path
 from typing import Literal
 
+from matplotlib import pyplot as plt, transforms
 import scipy
 import numpy as np
 import pandas as pd
 from scipy.stats import spearmanr
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score, matthews_corrcoef, roc_auc_score
 
-from src.viz.constants import MODEL_COLORS, MODEL_MARKERS, MODELS, SPLIT_ID, LAYERS, DATASET2TASK
+from src.viz.constants import MODEL_COLORS, MODEL_MARKERS, MODEL_NAMES, MODELS, SPLIT_ID, LAYERS, DATASET2TASK
 from src.downstream.utils import multioutput_mcc, multiclass_mcc
 
 
@@ -37,10 +38,10 @@ def compute_metric(y_hat: np.ndarray, y: np.ndarray, metric: str, task: Literal[
                     return multioutput_mcc(y.astype(int), y_hat)
             if task == "multi-class":
                 if y_hat.ndim == 3:
-                    return multiclass_mcc(y.astype(int), y_hat[0].argmax(axis=1))
+                    return matthews_corrcoef(y.astype(int), y_hat[0].argmax(axis=1))
                 if y_hat.ndim == 1:
-                    return multiclass_mcc(y.astype(int), y_hat)
-                return multiclass_mcc(y.astype(int), y_hat.argmax(axis=1))
+                    return matthews_corrcoef(y.astype(int), y_hat)
+                return matthews_corrcoef(y.astype(int), y_hat.argmax(axis=1))
             if y_hat.ndim == 2:
                 return matthews_corrcoef(y.astype(int), y_hat[:, 1] > 0.5)
             return matthews_corrcoef(y.astype(int), y_hat > 0.5)
@@ -121,10 +122,11 @@ def plot_performance(
         model_prefix: Literal["", "empty_"] = "", 
         legend: bool = False, 
         colored: bool | str = True, 
-        title: str | None = None, 
+        title: str | bool | None = None, 
         aa: bool = False, 
         n_classes: int = 42,
-        task: Literal["regression", "binary", "multi-label", "multi-class"] = "regression"
+        task: Literal["regression", "binary", "multi-label", "multi-class"] = "regression",
+        models: list[str] = MODELS
     ) -> None:
     """
     Plot performance metrics for different models on a given axis.
@@ -139,27 +141,28 @@ def plot_performance(
         model_prefix: Prefix to add to model names. Either "" or "empty_" to indicate using normal or untrained models.
         legend: Whether to display the legend.
         colored: Color setting for the plot lines.
-        title: Optional title for the plot.
+        title: Optional title for the plot. Can be a string, boolean, or None.
     """
-    for model in MODELS[:-1]:
+    for model in models:
         perfs = [compute_performance(root, model_prefix + model, dataset, layer, algo, metric, aa=aa, n_classes=n_classes, task=task) for layer in range(LAYERS[model] + 1)]
         if sum([abs(p) for p in perfs]) == 0:  # drop performances that are 0 throughout
             continue
         ax.plot(
             np.arange(0, 1 + 1e-5, 1 / (LAYERS[model])) if relative else np.arange(len(perfs)),
             perfs, 
-            label=model_prefix + model, 
+            label=model_prefix + MODEL_NAMES.get(model, model), 
             c=MODEL_COLORS.get(model, None) if colored == True else colored,
             marker=MODEL_MARKERS.get(model, None) if colored == True else None,
         )
 
     ax.set_xlabel(("Relative" if relative else "Absolute") + " Layer")
     ax.set_ylabel(metric.upper())
-    ax.set_title(title or f"{metric.upper()} of {algo.upper()} heads")
-    if dataset == "meltome_atlas":
-        ax.set_ylim(bottom=3.95, top=8.55)
-    else:
-        ax.set_ylim(bottom=-0.05, top=1.05)
+    if not isinstance(title, bool) or title:
+        ax.set_title(title or f"{metric.upper()} of {algo.upper()} heads")
+    # if dataset == "meltome_atlas":
+    #     ax.set_ylim(bottom=3.95, top=8.55)
+    # else:
+    #     ax.set_ylim(bottom=-0.05, top=1.05)
     if legend:
         ax.legend()
 
@@ -322,7 +325,7 @@ def plot_metric(
         n_classes: Number of classes for classification tasks. Only used for aa-tasks.
     """
     title_map = {"ids": "Intrinsic Dimensions", "density": "Density", "noverlap": "Neighbor Overlap", "noverlap_50": "Neighbor Overlap (50)"}
-    for model in MODELS[:-1]:
+    for model in MODELS:
         # if metric == "5dvol" and model.startswith("ankh"):
         #     continue  # ankh is crazy in this metric
         perfs = []
@@ -354,3 +357,25 @@ def plot_metric(
         ax.set_yscale("log")
     if legend:
         ax.legend(loc="upper right")
+
+def set_subplot_label(ax: plt.Axes, fig: plt.Figure, label: str) -> None:
+    """
+    Set the label for a subplot.
+    Args:
+        ax: The subplot
+        fig: The figure
+        label: The label to set
+    """
+    ax.text(
+        0.0,
+        1.0,
+        label,
+        transform=ax.transAxes + transforms.ScaledTranslation(
+            -25 / 72,
+            10 / 72,
+            fig.dpi_scale_trans
+        ),
+        fontsize="x-large",
+        va="bottom",
+        fontfamily="serif",
+    )
