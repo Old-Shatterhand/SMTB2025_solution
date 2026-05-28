@@ -1,3 +1,8 @@
+import os
+
+os.environ["TORCHINDUCTOR_CACHE_DIR"] = "/home/s8rojoer/.cache"
+os.environ.setdefault("LOGNAME", "s8rojoer")
+
 import re
 import pickle
 from pathlib import Path
@@ -24,21 +29,21 @@ AA_OHE = {
 }
 
 PLM_MODELS = {
-    "esm-t6": "facebook/esm2_t6_8M_UR50D",
-    "esm-t12": "facebook/esm2_t12_35M_UR50D",
-    "esm-t30": "facebook/esm2_t30_150M_UR50D",
-    "esm-t33": "facebook/esm2_t33_650M_UR50D",
-    "esm-t36": "facebook/esm2_t36_3B_UR50D",
-    "ankh-base": "ElnaggarLab/ankh-base",
-    "ankh-large": "ElnaggarLab/ankh-large",
+    "esm_t6": "facebook/esm2_t6_8M_UR50D",
+    "esm_t12": "facebook/esm2_t12_35M_UR50D",
+    "esm_t30": "facebook/esm2_t30_150M_UR50D",
+    "esm_t33": "facebook/esm2_t33_650M_UR50D",
+    "esm_t36": "facebook/esm2_t36_3B_UR50D",
+    "ankh_base": "ElnaggarLab/ankh-base",
+    "ankh_large": "ElnaggarLab/ankh-large",
 
-    "progen2-small": "hugohrban/progen2-small",
-    "progen2-medium": "hugohrban/progen2-medium",
-    "progen2-large": "hugohrban/progen2-large",
-    "rita-small": "lightonai/RITA_s",
-    "rita-medium": "lightonai/RITA_m",
-    "rita-large": "lightonai/RITA_l",
-    "rita-xlarge": "lightonai/RITA_xl",
+    "progen2_small": "hugohrban/progen2-small",
+    "progen2_medium": "hugohrban/progen2-medium",
+    "progen2_large": "hugohrban/progen2-large",
+    "rita_small": "lightonai/RITA_s",
+    "rita_medium": "lightonai/RITA_m",
+    "rita_large": "lightonai/RITA_l",
+    "rita_xlarge": "lightonai/RITA_xl",
 }
 
 
@@ -240,7 +245,7 @@ def run_prott5(data_path: Path, output_path: Path, aa_level: bool = False, empty
 
         for i in range(0, num_layers + 1):
             with open(output_path / f"layer_{i}" / f"{idx}.pkl", "wb") as f:
-                save_embeddings(embedding_repr.hidden_states[i][0, 1:-1].cpu().numpy(), aa_level, f)
+                save_embeddings(embedding_repr.hidden_states[i][0, :-1].cpu().numpy(), aa_level, f)
         del embedding_repr
 
 
@@ -263,7 +268,7 @@ def run_progen2(model_name: str, data_path: Path, output_path: Path, aa_level: b
 
     tokenizer = Tokenizer.from_pretrained(PLM_MODELS[model_name])
     if not empty:
-        model = AutoModelForCausalLM.from_pretrained(PLM_MODELS[model_name], trust_remote_code=True).to(DEVICE).eval()
+        model = AutoModelForCausalLM.from_pretrained(PLM_MODELS[model_name], trust_remote_code=True, cache_dir="/home/s8rojoer/.cache/huggingface/").to(DEVICE).eval()
     else:
         raise NotImplementedError("Empty ProGen2 model is not implemented.")
     
@@ -274,9 +279,14 @@ def run_progen2(model_name: str, data_path: Path, output_path: Path, aa_level: b
         with torch.no_grad():
             outputs = model(input_ids, output_hidden_states=True)
             del input_ids
-        for i, layer in enumerate(outputs.hidden_states):
+        for i, layer in enumerate(outputs.hidden_states[:-1]):
             with open(output_path / f"layer_{i}" / f"{idx}.pkl", "wb") as f:
                 save_embeddings(layer[0, 1:-1].cpu().numpy(), aa_level, f)
+        
+        # treat last layer differently, because ProGen2 developers are crazy!?
+        with open(output_path / f"layer_{LAYERS[model_name]}" / f"{idx}.pkl", "wb") as f:
+            save_embeddings(outputs.hidden_states[-1][1:-1].cpu().numpy(), aa_level, f)
+
         del outputs
 
 
@@ -435,7 +445,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     print(sys.argv[1:])
-    args.model_name = args.model_name.lower().replace("_", "-")
+    # args.model_name = args.model_name.lower().replace("_", "-")
 
     if "esmc" in args.model_name:
         run_esmc(args.model_name, args.data_path, args.output_path, args.aa_level, args.empty, args.force)

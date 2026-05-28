@@ -3,7 +3,8 @@ from pathlib import Path
 from src.viz.constants import MODELS, WP_DATASETS, AA_DATASETS, LAYERS, LAST_PROTEIN
 
 
-BASE = Path("/") / "scratch" / "SCRATCH_SAS" / "roman" / "SMTB"
+# BASE = Path("/") / "scratch" / "SCRATCH_SAS" / "roman" / "SMTB"
+BASE = Path("/") / "scratch" / "chair_kalinina" / "s8rojoer" / "SMTB"
 
 NUM_OUTPUTS = {
     "stability": 1,
@@ -31,6 +32,7 @@ def foo(fpath, prefix):
 
 for model in MODELS:
     for dataset in WP_DATASETS:
+        continue
         # embedding dataset name
         emb_dataset = dataset.split("_")[0] if dataset not in {"meltome_atlas", "scope_40_208"} else dataset
 
@@ -78,6 +80,8 @@ for model in MODELS:
             print(f"\r{model}-{layer}-{dataset}", end=" " * 20)
 
             for filename, ext in [("ids", "csv"), ("pca", "pkl"), ("noverlap", "csv"), ("predictions_knn", "pkl"), ("predictions_lr", "pkl")]:
+                # if model == "progen2_medium" and layer == 25:
+                #     print("\r" + filename, " " * 30)
                 if filename == "noverlap" and layer == LAYERS[model] - 1:  # no noverlap for last layer as it's an in-between-layer metric
                     continue
                 
@@ -85,6 +89,8 @@ for model in MODELS:
                     for classes in [3, 8]:
                         foo(ds_root / f"layer_{layer}" / f"{filename}_{classes}.pkl", "AA")
                 else:
+                    # if model == "progen2_medium" and layer == 25:
+                    #     print("\r" + filename, ds_root, (ds_root / f"layer_{layer}" / f"{filename}.{ext}").exists())
                     foo(ds_root / f"layer_{layer}" / f"{filename}.{ext}", "AA")
 
 print(f"\rFound {found} out of {total} files.")

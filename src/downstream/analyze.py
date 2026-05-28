@@ -87,7 +87,8 @@ def build_aa_dataloader(df: pd.DataFrame, embed_path: Path, n_classes: int) -> t
         try:
             # fetch labels, if they are nan or otherwise broken, skip
             tmp_labels = row[labels]
-            if not hasattr(tmp_labels, "__len__") or len(tmp_labels) != len(row["sequence"]):
+            sequence = row["sequence"]
+            if not hasattr(tmp_labels, "__len__") or len(tmp_labels) != len(sequence):
                 continue
             
             # Need to trim labels because ESM embeddings max length is 1022
@@ -96,6 +97,9 @@ def build_aa_dataloader(df: pd.DataFrame, embed_path: Path, n_classes: int) -> t
             # load embeddings
             with open(embed_path / f"{row['ID']}.pkl", "rb") as f:
                 tmp = pickle.load(f)
+                tmp = tmp[:1022]
+                if row["ID"].startswith("P000"):
+                    print(tmp.shape, len(tmp_labels))
             
             embeddings.append(tmp)
             aa_labels += [CLASS_MAPPING[c] for c in tmp_labels]
@@ -314,7 +318,7 @@ def main(args):
     if {'knn', 'id', 'no'}.intersection(calcs):
         print(f"[{time() - start:.2f}s] Fitting kNN on layer 0 ...")
         curr_distances, curr_dist_indices = knn(
-            out_folder=base_result_folder / "layer_0", 
+            out_folder=base_result_folder / f"layer_{args.start_layer}", 
             train_X=curr_train_X, 
             train_y=curr_train_y, 
             val_X=curr_val_X, 
@@ -330,7 +334,7 @@ def main(args):
     if 'lr' in calcs:
         print(f"[{time() - start:.2f}s] Training LR on layer 0 ...")
         train_lr_head(
-            out_folder=base_result_folder / "layer_0", 
+            out_folder=base_result_folder / f"layer_{args.start_layer}", 
             train_X=curr_train_X, 
             train_y=curr_train_y, 
             val_X=curr_val_X, 
