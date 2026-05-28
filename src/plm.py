@@ -1,3 +1,8 @@
+import os
+
+os.environ["TORCHINDUCTOR_CACHE_DIR"] = "/home/s8rojoer/.cache"
+os.environ.setdefault("LOGNAME", "s8rojoer")
+
 import re
 import pickle
 from pathlib import Path
@@ -237,7 +242,7 @@ def run_prott5(data_path: Path, output_path: Path, aa_level: bool = False, empty
 
         for i in range(0, num_layers + 1):
             with open(output_path / f"layer_{i}" / f"{idx}.pkl", "wb") as f:
-                save_embeddings(embedding_repr.hidden_states[i][0, 1:-1].cpu().numpy(), aa_level, f)
+                save_embeddings(embedding_repr.hidden_states[i][0, :-1].cpu().numpy(), aa_level, f)
         del embedding_repr
 
 
@@ -260,7 +265,7 @@ def run_progen2(model_name: str, data_path: Path, output_path: Path, aa_level: b
 
     tokenizer = Tokenizer.from_pretrained(PLM_MODELS[model_name])
     if not empty:
-        model = AutoModelForCausalLM.from_pretrained(PLM_MODELS[model_name], trust_remote_code=True).to(DEVICE).eval()
+        model = AutoModelForCausalLM.from_pretrained(PLM_MODELS[model_name], trust_remote_code=True, cache_dir="/home/s8rojoer/.cache/huggingface/").to(DEVICE).eval()
     else:
         raise NotImplementedError("Empty ProGen2 model is not implemented.")
     
@@ -277,7 +282,8 @@ def run_progen2(model_name: str, data_path: Path, output_path: Path, aa_level: b
         
         # treat last layer differently, because ProGen2 developers are crazy!?
         with open(output_path / f"layer_{LAYERS[model_name]}" / f"{idx}.pkl", "wb") as f:
-            save_embeddings(layer[1:-1].cpu().numpy(), aa_level, f)
+            save_embeddings(outputs.hidden_states[-1][1:-1].cpu().numpy(), aa_level, f)
+
         del outputs
 
 
