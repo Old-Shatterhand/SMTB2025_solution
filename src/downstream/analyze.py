@@ -43,7 +43,7 @@ def build_wp_dataloader(df: pd.DataFrame, embed_path: Path, labels: str | list[s
     embed_path = Path(embed_path)
     embeddings = []
     valid_ids = set()
-    for idx in df["ID"].values:
+    for i, idx in enumerate(df["ID"].values):
         try:
             with open(embed_path / f"{idx}.pkl", "rb") as f:
                 tmp = pickle.load(f)
@@ -451,3 +451,4 @@ if __name__ == "__main__":
     parser.add_argument('--start-layer', type=int, default=0, help='Layer to start the analysis from')
     args = parser.parse_args()
     main(args)
+

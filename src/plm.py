@@ -24,21 +24,18 @@ AA_OHE = {
 }
 
 PLM_MODELS = {
-    "esm-t6": "facebook/esm2_t6_8M_UR50D",
-    "esm-t12": "facebook/esm2_t12_35M_UR50D",
-    "esm-t30": "facebook/esm2_t30_150M_UR50D",
-    "esm-t33": "facebook/esm2_t33_650M_UR50D",
-    "esm-t36": "facebook/esm2_t36_3B_UR50D",
-    "ankh-base": "ElnaggarLab/ankh-base",
-    "ankh-large": "ElnaggarLab/ankh-large",
+    "esm_t6": "facebook/esm2_t6_8M_UR50D",
+    "esm_t12": "facebook/esm2_t12_35M_UR50D",
+    "esm_t30": "facebook/esm2_t30_150M_UR50D",
+    "esm_t33": "facebook/esm2_t33_650M_UR50D",
+    "esm_t36": "facebook/esm2_t36_3B_UR50D",
 
-    "progen2-small": "hugohrban/progen2-small",
-    "progen2-medium": "hugohrban/progen2-medium",
-    "progen2-large": "hugohrban/progen2-large",
-    "rita-small": "lightonai/RITA_s",
-    "rita-medium": "lightonai/RITA_m",
-    "rita-large": "lightonai/RITA_l",
-    "rita-xlarge": "lightonai/RITA_xl",
+    "ankh_base": "ElnaggarLab/ankh-base",
+    "ankh_large": "ElnaggarLab/ankh-large",
+
+    "progen2_small": "hugohrban/progen2-small",
+    "progen2_medium": "hugohrban/progen2-medium",
+    "progen2_large": "hugohrban/progen2-large",
 }
 
 
@@ -274,9 +271,13 @@ def run_progen2(model_name: str, data_path: Path, output_path: Path, aa_level: b
         with torch.no_grad():
             outputs = model(input_ids, output_hidden_states=True)
             del input_ids
-        for i, layer in enumerate(outputs.hidden_states):
+        for i, layer in enumerate(outputs.hidden_states[:-1]):
             with open(output_path / f"layer_{i}" / f"{idx}.pkl", "wb") as f:
                 save_embeddings(layer[0, 1:-1].cpu().numpy(), aa_level, f)
+        
+        # treat last layer differently, because ProGen2 developers are crazy!?
+        with open(output_path / f"layer_{LAYERS[model_name]}" / f"{idx}.pkl", "wb") as f:
+            save_embeddings(layer[1:-1].cpu().numpy(), aa_level, f)
         del outputs
 
 
@@ -435,7 +436,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     print(sys.argv[1:])
-    args.model_name = args.model_name.lower().replace("_", "-")
+    # args.model_name = args.model_name.lower().replace("_", "-")
 
     if "esmc" in args.model_name:
         run_esmc(args.model_name, args.data_path, args.output_path, args.aa_level, args.empty, args.force)

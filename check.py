@@ -40,9 +40,15 @@ for model in MODELS:
             continue
         
         # check for global probes
-        if not (ds_root / f"probe_weights_{dataset}_{10 if dataset == 'deeploc2' else 1}.pkl").exists():
-            prints.append(f"[WP] {model} {dataset} does not have global probes")
-            continue
+        if dataset == "scope_40_208":
+            # Check for both superfamily and fold probes for scope_40_208
+            for level, count in [("superfamily", 215), ("fold", 238)]:
+                if not (ds_root / f"probe_weights_scope_40_208_{count}.pkl").exists():
+                    prints.append(f"[WP] {model} {dataset} {level} does not have global probes")
+        else:
+            if not (ds_root / f"probe_weights_{dataset}_{10 if dataset == 'deeploc2' else 1}.pkl").exists():
+                prints.append(f"[WP] {model} {dataset} does not have global probes")
+                continue
 
         for layer in range(LAYERS[model]):
             print(f"\r{model}-{layer}-{dataset}", end=" " * 20)
