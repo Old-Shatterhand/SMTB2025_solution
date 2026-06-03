@@ -90,7 +90,7 @@ class ESMModel(L.LightningModule):
     def shared_step(self, batch, step: str):
         x, y = batch
         logits = self(x)
-        loss = nn.CrossEntropyLoss()(logits.view(-1, logits.size(-1)), y.view(-1))
+        loss = nn.CrossEntropyLoss(label_smoothing=0.1)(logits.view(-1, logits.size(-1)), y.view(-1))
         self.log(f"{step}/loss", loss, prog_bar=True)
         return loss
 
@@ -120,7 +120,10 @@ if __name__ == "__main__":
         help="Path to the CSV file containing the dataset.",
     )
     parser.add_argument(
-        "--embed-path", type=Path, default="data/esm_embeddings", help="Path to the directory containing ESM embeddings."
+        "--embed-path",
+        type=Path,
+        default="data/esm_embeddings",
+        help="Path to the directory containing ESM embeddings.",
     )
     parser.add_argument("--model", type=str, default="facebook/esm2_t6_8M_UR50D", help="ESM model name.")
     parser.add_argument("--layer", type=int, default=0, help="Layer of ESM embeddings to use.")
@@ -134,7 +137,11 @@ if __name__ == "__main__":
         max_epochs=args.max_epochs,
         accelerator="auto",
         logger=L.pytorch.loggers.CSVLogger("logs"),
-        callbacks=[L.pytorch.callbacks.ModelCheckpoint(monitor="val/loss", mode="min")],
+        gradient_clip_val=1.0,
+        callbacks=[
+            L.pytorch.callbacks.ModelCheckpoint(monitor="val/loss", mode="min"),
+            L.pytorch.callbacks.EarlyStopping(monitor="val/loss", mode="min", patience=50),
+        ],
     )
     data_module = ESMDataModule(
         df_path=args.df_path,
