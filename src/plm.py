@@ -23,9 +23,26 @@ from src.viz.constants import LAYERS
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 AA_OHE = {
-    "A": 0, "C": 1, "D": 2, "E": 3, "F": 4, "G": 5, "H": 6, "I": 7,
-    "K": 8, "L": 9, "M": 10, "N": 11, "P": 12, "Q": 13, "R": 14,
-    "S": 15, "T": 16, "V": 17, "W": 18, "Y": 19
+    "A": 0,
+    "C": 1,
+    "D": 2,
+    "E": 3,
+    "F": 4,
+    "G": 5,
+    "H": 6,
+    "I": 7,
+    "K": 8,
+    "L": 9,
+    "M": 10,
+    "N": 11,
+    "P": 12,
+    "Q": 13,
+    "R": 14,
+    "S": 15,
+    "T": 16,
+    "V": 17,
+    "W": 18,
+    "Y": 19,
 }
 
 PLM_MODELS = {
@@ -34,24 +51,33 @@ PLM_MODELS = {
     "esm_t30": "facebook/esm2_t30_150M_UR50D",
     "esm_t33": "facebook/esm2_t33_650M_UR50D",
     "esm_t36": "facebook/esm2_t36_3B_UR50D",
-
     "ankh_base": "ElnaggarLab/ankh-base",
     "ankh_large": "ElnaggarLab/ankh-large",
-
     "progen2_small": "hugohrban/progen2-small",
     "progen2_medium": "hugohrban/progen2-medium",
     "progen2_large": "hugohrban/progen2-large",
 }
 
 
-def save_embeddings(embeddings: np.ndarray, aa_level: bool, fp) -> None:
+def save_embeddings(embeddings: np.ndarray, aa_level: bool, fp, positions: list | None) -> None:
+    if positions is not None and aa_level is False:
+        raise ValueError("Positions can only be used when aa_level is True.")
     if aa_level:
+        if positions is not None:
+            embeddings = embeddings[positions]
         pickle.dump(embeddings, fp)
     else:
         pickle.dump(embeddings.mean(axis=0), fp)
 
 
-def run_esm(model_name: str, data_path: Path, output_path: Path, aa_level: bool = False, empty: bool = False, force: bool = False) -> None:
+def run_esm(
+    model_name: str,
+    data_path: Path,
+    output_path: Path,
+    aa_level: bool = False,
+    empty: bool = False,
+    force: bool = False,
+) -> None:
     """
     Run ESM model to extract embeddings for sequences in the given data path.
 
@@ -68,16 +94,19 @@ def run_esm(model_name: str, data_path: Path, output_path: Path, aa_level: bool 
 
     data = pd.read_csv(data_path)
 
+    if "positions" in data.columns:
+        data["positions"] = data["positions"].apply(eval)
+
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     if not empty:
         model = AutoModel.from_pretrained(model_name).to(DEVICE).eval()
     else:
         model = AutoModel.from_config(AutoConfig.from_pretrained(model_name)).to(DEVICE).eval()
 
-    for idx, seq in tqdm(data[["ID", "sequence"]].values):
-        if not force and (output_path / "layer_0" / f"{idx}.pkl").exists():
+    for _, row in tqdm(data.iterrows(), total=len(data), desc="Processing sequences"):
+        if not force and (output_path / "layer_0" / f"{row['ID']}.pkl").exists():
             continue
-        inputs = tokenizer(seq[:1022])
+        inputs = tokenizer(row["sequence"], truncation=True, return_tensors="pt").to(DEVICE)
         with torch.no_grad():
             outputs = model(
                 input_ids=torch.tensor(inputs["input_ids"]).reshape(1, -1).to(DEVICE),
@@ -87,15 +116,18 @@ def run_esm(model_name: str, data_path: Path, output_path: Path, aa_level: bool 
             )
             del inputs
         for i, layer in enumerate(outputs.hidden_states):
-            with open(output_path / f"layer_{i}" / f"{idx}.pkl", "wb") as f:
-                save_embeddings(layer[0, 1: -1].cpu().numpy(), aa_level, f)
+            with open(output_path / f"layer_{i}" / f"{row['ID']}.pkl", "wb") as f:
+                positions = row.get("positions", None)
+                save_embeddings(layer[0, 1:-1].cpu().numpy(), aa_level, f, positions)
         del outputs
 
 
-def run_esmc(model_name: str, data_path: Path, output_path: Path, aa_level: bool = False, empty: bool = False, force: bool = False) -> None:
+def run_esmc(
+    model_name: str, data_path: Path, output_path: Path, aa_level: bool = False, empty: bool = False, force: bool = False
+) -> None:
     """
     Run ESMC model to extract embeddings for sequences in the given data path.
-    
+
     Args:
         model_name: Name of the ESMC model to use.
         data_path: Path to the CSV file containing sequences.
@@ -123,7 +155,7 @@ def run_esmc(model_name: str, data_path: Path, output_path: Path, aa_level: bool
         with torch.no_grad():
             logits_output = model.logits(
                 model.encode(ESMProtein(sequence=seq[:1022])),
-                LogitsConfig(sequence=True, return_embeddings=True, return_hidden_states=True)
+                LogitsConfig(sequence=True, return_embeddings=True, return_hidden_states=True),
             )
         for i in range(0, num_layers):
             with open(output_path / f"layer_{i}" / f"{idx}.pkl", "wb") as f:
@@ -133,7 +165,9 @@ def run_esmc(model_name: str, data_path: Path, output_path: Path, aa_level: bool
         del logits_output
 
 
-def run_ankh(model_name: str, data_path: Path, output_path: Path, aa_level: bool = False, empty: bool = False, force: bool = False) -> None:
+def run_ankh(
+    model_name: str, data_path: Path, output_path: Path, aa_level: bool = False, empty: bool = False, force: bool = False
+) -> None:
     """
     Run Ankh model to extract embeddings for sequences in the given data path.
 
@@ -185,7 +219,7 @@ def run_prostt5(data_path: Path, output_path: Path, aa_level: bool = False, empt
     num_layers = 24
     for i in range(num_layers + 1):
         (output_path / f"layer_{i}").mkdir(parents=True, exist_ok=True)
-    
+
     tokenizer = T5Tokenizer.from_pretrained("Rostlab/ProstT5")
     if not empty:
         model = AutoModel.from_pretrained("Rostlab/ProstT5").to(DEVICE).eval()
@@ -196,10 +230,12 @@ def run_prostt5(data_path: Path, output_path: Path, aa_level: bool = False, empt
         if not force and (output_path / "layer_0" / f"{idx}.pkl").exists():
             continue
         seq = "<AA2fold>" + " " + " ".join([aa.upper() for aa in re.sub(r"[UZOB]", "X", seq[:1022])])
-        tokens = tokenizer.batch_encode_plus([seq], add_special_tokens=True, padding="longest", return_tensors='pt').to(DEVICE)
+        tokens = tokenizer.batch_encode_plus([seq], add_special_tokens=True, padding="longest", return_tensors="pt").to(DEVICE)
 
         with torch.no_grad():
-            embeddings = model.encoder(tokens.input_ids, attention_mask=tokens.attention_mask, output_attentions=False, output_hidden_states=True)
+            embeddings = model.encoder(
+                tokens.input_ids, attention_mask=tokens.attention_mask, output_attentions=False, output_hidden_states=True
+            )
             del tokens
 
         for i in range(0, num_layers + 1):
@@ -211,7 +247,7 @@ def run_prostt5(data_path: Path, output_path: Path, aa_level: bool = False, empt
 def run_prott5(data_path: Path, output_path: Path, aa_level: bool = False, empty: bool = False, force: bool = False) -> None:
     """
     Run ProtT5 model to extract embeddings for sequences in the given data path.
-    
+
     Args:
         data_path: Path to the CSV file containing sequences.
         output_path: Path to save the extracted embeddings.
@@ -237,7 +273,9 @@ def run_prott5(data_path: Path, output_path: Path, aa_level: bool = False, empty
         tokens = tokenizer.batch_encode_plus([seq], add_special_tokens=True, padding="longest", return_tensors="pt").to(DEVICE)
 
         with torch.no_grad():
-            embedding_repr = model.encoder(tokens.input_ids, attention_mask=tokens.attention_mask, output_attentions=False, output_hidden_states=True)
+            embedding_repr = model.encoder(
+                tokens.input_ids, attention_mask=tokens.attention_mask, output_attentions=False, output_hidden_states=True
+            )
             del tokens
 
         for i in range(0, num_layers + 1):
@@ -246,7 +284,9 @@ def run_prott5(data_path: Path, output_path: Path, aa_level: bool = False, empty
         del embedding_repr
 
 
-def run_progen2(model_name: str, data_path: Path, output_path: Path, aa_level: bool = False, empty: bool = False, force: bool = False) -> None:
+def run_progen2(
+    model_name: str, data_path: Path, output_path: Path, aa_level: bool = False, empty: bool = False, force: bool = False
+) -> None:
     """
     Run ProGen2 model to extract embeddings for sequences in the given data path.
 
@@ -260,15 +300,21 @@ def run_progen2(model_name: str, data_path: Path, output_path: Path, aa_level: b
     """
     for i in range(LAYERS[model_name] + 1):
         (output_path / f"layer_{i}").mkdir(parents=True, exist_ok=True)
-    
+
     data = pd.read_csv(data_path)
 
     tokenizer = Tokenizer.from_pretrained(PLM_MODELS[model_name])
     if not empty:
-        model = AutoModelForCausalLM.from_pretrained(PLM_MODELS[model_name], trust_remote_code=True, cache_dir="/home/s8rojoer/.cache/huggingface/").to(DEVICE).eval()
+        model = (
+            AutoModelForCausalLM.from_pretrained(
+                PLM_MODELS[model_name], trust_remote_code=True, cache_dir="/home/s8rojoer/.cache/huggingface/"
+            )
+            .to(DEVICE)
+            .eval()
+        )
     else:
         raise NotImplementedError("Empty ProGen2 model is not implemented.")
-    
+
     for idx, seq in tqdm(data[["ID", "sequence"]].values):
         if not force and (output_path / "layer_0" / f"{idx}.pkl").exists():
             continue
@@ -279,7 +325,7 @@ def run_progen2(model_name: str, data_path: Path, output_path: Path, aa_level: b
         for i, layer in enumerate(outputs.hidden_states[:-1]):
             with open(output_path / f"layer_{i}" / f"{idx}.pkl", "wb") as f:
                 save_embeddings(layer[0, 1:-1].cpu().numpy(), aa_level, f)
-        
+
         # treat last layer differently, because ProGen2 developers are crazy!?
         with open(output_path / f"layer_{LAYERS[model_name]}" / f"{idx}.pkl", "wb") as f:
             save_embeddings(outputs.hidden_states[-1][1:-1].cpu().numpy(), aa_level, f)
@@ -287,7 +333,9 @@ def run_progen2(model_name: str, data_path: Path, output_path: Path, aa_level: b
         del outputs
 
 
-def run_rita(model_name: str, data_path: Path, output_path: Path, aa_level: bool = False, empty: bool = False, force: bool = False) -> None:
+def run_rita(
+    model_name: str, data_path: Path, output_path: Path, aa_level: bool = False, empty: bool = False, force: bool = False
+) -> None:
     """
     Run RITA model to extract embeddings for sequences in the given data path.
 

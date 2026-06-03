@@ -15,31 +15,30 @@ def sample_dataset(
     assert 0 <= mask_prob <= 1, "mask_prob must be between 0 and 1"
     assert 0 <= n_samples <= len(sequences), "n_samples must be less than or equal to the number of sequences"
     data = []
-    for _ in range(n_samples):
-        # generate random id for the sample
-        old_labels = []
-        positions = []
-        result = []
+    while len(data) < n_samples:
         seq = sequences.sample(n=1).iloc[0]
+        if len(seq) > 1022:
+            continue
+        result = ""
+        old_labels = ""
+        positions = []
         for i, token in enumerate(seq):
             if np.random.rand() < mask_prob:
-                result.append(mask_token)
-                old_labels.append(token)
+                result += mask_token
+                old_labels += token
                 positions.append(i)
             else:
-                result.append(token)
-        data.append(
-            {
-                # "ID": f"sample_{np.random.randint(1e10)}",
-                "sequence": "".join(result),
-                "labels": old_labels,
-                "positions": positions,
-                "split": np.random.choice(
-                    ["train", "val", "test"], p=[train_size, val_size, 1 - train_size - val_size]
-                ),
-            }
-        )
-    
+                result += token
+        if len(old_labels) > 0:
+            data.append(
+                {
+                    "sequence": result,
+                    "labels": old_labels,
+                    "positions": positions,
+                    "split": np.random.choice(["train", "val", "test"], p=[train_size, val_size, 1 - train_size - val_size]),
+                }
+            )
+
     df = pd.DataFrame(data)
     df["ID"] = [f"P{i:05d}" for i in range(len(df))]
     return df
@@ -47,6 +46,7 @@ def sample_dataset(
 
 if __name__ == "__main__":
     import argparse
+    from pathlib import Path
 
     parser = argparse.ArgumentParser(description="Sample a dataset for masked language modeling.")
     parser.add_argument("input_file", type=str, help="Path to the input CSV file.")
@@ -67,4 +67,5 @@ if __name__ == "__main__":
         train_size=args.train_size,
         val_size=args.val_size,
     )
+    Path(args.output_file).parent.mkdir(parents=True, exist_ok=True)
     sample_df.to_csv(args.output_file, index=False)
