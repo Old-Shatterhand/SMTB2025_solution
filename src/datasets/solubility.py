@@ -5,7 +5,12 @@ import pandas as pd
 
 
 def process_solubility(save_path: Path) -> None:
+    """
+    Process the solubility dataset and save it as a single CSV file.
 
+    Args:
+        save_path (Path): The directory where the processed dataset will be saved.
+    """
     df_train = pd.read_csv("hf://datasets/proteinea/solubility/solubility_training.csv")
     df_train["split"] = "train"
     df_valid = pd.read_csv("hf://datasets/proteinea/solubility/solubility_validation.csv")

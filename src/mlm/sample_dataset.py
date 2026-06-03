@@ -1,16 +1,31 @@
+import argparse
+from pathlib import Path
+
 import pandas as pd
 import numpy as np
 
 
 def sample_dataset(
-    sequences=pd.Series(dtype=str),
-    mask_token="<mask>",
-    mask_prob=0.15,
-    n_samples=1000,
-    train_size=0.8,
-    val_size=0.1,
-    random_state=42,
-) -> pd.DataFrame:
+        sequences: pd.Series = pd.Series(dtype=str),
+        mask_token: str = "<mask>",
+        mask_prob: float = 0.15,
+        n_samples: int = 1000,
+        train_size: float = 0.8,
+        val_size: float = 0.1,
+        random_state: int = 42,
+    ) -> pd.DataFrame:
+    """
+    Sample a dataset for masked language modeling.
+
+    Args:
+        sequences (pd.Series): A pandas Series containing the sequences to sample from.
+        mask_token (str): The token to use for masking.
+        mask_prob (float): The probability of masking a token.
+        n_samples (int): The number of samples to generate.
+        train_size (float): The proportion of the dataset to include in the training split.
+        val_size (float): The proportion of the dataset to include in the validation split.
+        random_state (int): The random seed for reproducibility.
+    """
     np.random.seed(random_state)
     assert 0 <= mask_prob <= 1, "mask_prob must be between 0 and 1"
     assert 0 <= n_samples <= len(sequences), "n_samples must be less than or equal to the number of sequences"
@@ -45,9 +60,6 @@ def sample_dataset(
 
 
 if __name__ == "__main__":
-    import argparse
-    from pathlib import Path
-
     parser = argparse.ArgumentParser(description="Sample a dataset for masked language modeling.")
     parser.add_argument("input_file", type=str, help="Path to the input CSV file.")
     parser.add_argument("output_file", type=str, help="Path to the output CSV file.")

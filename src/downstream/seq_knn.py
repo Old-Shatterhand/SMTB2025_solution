@@ -7,7 +7,6 @@ import pickle
 from pathlib import Path
 import pandas as pd
 import numpy as np
-from scipy.sparse import lil_matrix, csr_matrix
 import argparse
 
 from src.downstream.analyze import prepare_dataset
@@ -61,17 +60,27 @@ def main(args):
     test_y = np.array(df[df["split"] == "test"][labels].values).astype(np.float32)
 
     print(f"[{datetime.now()}] Training kNN classifier...")
-    knn = KNeighborsClassifier(
-        n_neighbors=10,
+    if args.task == "regression":
+        knn_class = KNeighborsRegressor
+    else:
+        knn_class = KNeighborsClassifier
+
+    knn = knn_class(
+        n_neighbors=args.k,
         metric='precomputed',   # tells sklearn the matrix IS the distances
         algorithm='brute',      # required for precomputed distances
         weights='distance',     # to weight by inverse distance
     ).fit(matrix[train_idx][:, train_idx], train_y)
 
     print(f"[{datetime.now()}] Computing predictions...")
-    train_preds = knn.predict_proba(matrix[train_idx][:, train_idx])
-    val_preds = knn.predict_proba(matrix[valid_idx][:, train_idx])
-    test_preds = knn.predict_proba(matrix[test_idx][:, train_idx])
+    if args.task == "regression":
+        train_preds = knn.predict(matrix[train_idx][:, train_idx])
+        val_preds = knn.predict(matrix[valid_idx][:, train_idx])
+        test_preds = knn.predict(matrix[test_idx][:, train_idx])
+    else:
+        train_preds = knn.predict_proba(matrix[train_idx][:, train_idx])
+        val_preds = knn.predict_proba(matrix[valid_idx][:, train_idx])
+        test_preds = knn.predict_proba(matrix[test_idx][:, train_idx])
 
     # Save results
     print(f"[{datetime.now()}] Saving results...")

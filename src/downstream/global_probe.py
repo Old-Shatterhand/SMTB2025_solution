@@ -13,10 +13,12 @@ from torch import nn
 from torch.utils.data import Dataset, DataLoader
 
 from src.downstream.analyze import build_wp_dataloader, prepare_dataset
+from src.viz.utils_general import compute_metric
 
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-EARLY_STOPPING_PATIENCE = 10
+EARLY_STOPPING_PATIENCE = 75
+LR_SCHEDULER_PATIENCE = 20
 
 class GlobalProbe(nn.Module):
     def __init__(self, input_dim: int, num_outputs: int, num_layers: int, task: Literal["regression", "binary", "multi-class", "multi-label"]):
@@ -30,14 +32,11 @@ class GlobalProbe(nn.Module):
             task (Literal["regression", "binary", "multi-class", "multi-label"]): The type of prediction task being performed, which determines the loss function used during training.
         """
         super().__init__()
-        self.weights = nn.Parameter(torch.randn(num_layers + 1), requires_grad=True)
-        self.weight_norm = nn.Softmax(dim=0)
+        self.weights = nn.Parameter(torch.zeros(num_layers + 1), requires_grad=True)
         self.linear = nn.Linear(input_dim, num_outputs)
         self.head = None
-        # if task == "multi-class":
-        #     self.head = nn.Softmax(dim=1)
-        if task == "multi-label":
-            self.head = nn.Sigmoid()
+        if task == "multi-class":
+            self.head = nn.Softmax(dim=1)
 
     def forward(self, batch: list[torch.Tensor]) -> torch.Tensor:
         """
@@ -50,7 +49,7 @@ class GlobalProbe(nn.Module):
         Returns:
             torch.Tensor: The output predictions after combining the layer representations and applying the linear layer.
         """
-        pd_weights = self.weight_norm(self.weights)
+        pd_weights = torch.nn.functional.softmax(self.weights, dim=0)
         weighted_sum = sum(w * layer for w, layer in zip(pd_weights, batch))
         x = self.linear(weighted_sum)
         if self.head is not None:
@@ -126,7 +125,7 @@ def calc_loss(loss_fn, predictions: torch.Tensor, targets: torch.Tensor, task: L
     Returns:
         torch.Tensor: The calculated loss value.
     """
-    if task == "binary":
+    if task == "binary" or task == "multi-label":
         return loss_fn(predictions.squeeze(), targets)
     if task == "multi-class":
         return loss_fn(predictions, targets.long())
@@ -192,6 +191,11 @@ def train_loop(
     best_state_dict = None
     losses = {"train": [], "val": []}
     epochs_without_improvement = 0
+    if task != "regression":
+        lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=LR_SCHEDULER_PATIENCE)
+    else:
+        lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=LR_SCHEDULER_PATIENCE)
+        # lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=LR_SCHEDULER_PATIENCE, gamma=0.1)
 
     for epoch in range(epochs):
         train_loss, samples = 0, 0
@@ -215,6 +219,7 @@ def train_loop(
         # Run Validation after each epoch
         avg_val_loss = validation_loop(model, val_dataloader, loss_fn, task)
         losses["val"].append(avg_val_loss)
+        lr_scheduler.step(avg_val_loss)
 
         end_time = time.time()
         print(f"Epoch {epoch + 1}/{epochs}: Train Loss = {avg_train_loss:.4f} | Val Loss = {avg_val_loss:.4f} | Time: {end_time - start_time:.2f}s")
@@ -238,7 +243,7 @@ def routine(
         embed_dir: Path,
         num_layers: int,
         num_outputs: int,
-        task: Literal["regression", "binary", "class"],
+        task: Literal["regression", "binary", "multi-class", "multi-label"],
         level: str | None = None,
         top: int | None = None,
         min_: int | None = None,
@@ -250,22 +255,32 @@ def routine(
         embed_dir (Path): The directory where the layer representations are stored and where results will be saved.
         num_layers (int): The number of layers to consider for probing.
         num_outputs (int): The number of output classes for classification tasks or 1 for regression.
-        task (Literal["regression", "binary", "class"]): The type of prediction task being performed, which determines the loss function used during training.
+        task (Literal["regression", "binary", "multi-class", "multi-label"]): The type of prediction task being performed, which determines the loss function used during training.
     """
     dataset_name = data_path.stem
-    df, label, val_name, _, _ = prepare_dataset(dataset_name, data_path, None, level, top, min_)
+    df, label, val_name, _, _ = prepare_dataset(dataset_name, data_path, None, level, top, min_, max_rows=1000)
     if level is not None:
         num_outputs = df[label].max() + 1
     train_dataset = GlobalDataset(df, "train", embed_dir, num_layers, label, device=DEVICE)
     valid_dataset = GlobalDataset(df, val_name, embed_dir, num_layers, label, device=DEVICE)
     weights, losses, preds, targs = [], [], [], []
-    loss_fn = lambda p, t: torch.sqrt(torch.nn.MSELoss()(p, t))
+
     if task == "binary":
-        loss_fn = torch.nn.BCEWithLogitsLoss()
-    elif task == "multi-class" or task == "multi-label":
+        pos_weight = torch.tensor([sum(train_dataset.labels == 0) / sum(train_dataset.labels == 1)]).to(DEVICE)
+        loss_fn = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+    elif task == "multi-label":
+        pos_counts = (train_dataset.labels == 1).sum(dim=0).float()  # shape: [num_outputs]
+        neg_counts = (train_dataset.labels == 0).sum(dim=0).float()  # shape: [num_outputs]
+        pos_weight = (neg_counts / pos_counts).squeeze().to(DEVICE)
+        loss_fn = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+    elif task == "multi-class":
         loss_fn = torch.nn.CrossEntropyLoss()
+    elif task == "regression":
+        loss_fn = torch.nn.HuberLoss()  # torch.nn.MSELoss()
+    else:
+        raise ValueError(f"Unsupported task type: {task}")
     
-    for curr_max_layer in range(1, num_layers + 1):
+    for curr_max_layer in range(num_layers, num_layers + 1):
         print(f"\n=== Training with up to layer {curr_max_layer} ===")
         train_dataset.set_layer_limit(curr_max_layer)
         train_dataloader = DataLoader(train_dataset, batch_size=32, shuffle=True)
@@ -274,9 +289,13 @@ def routine(
         valid_dataloader = DataLoader(valid_dataset, batch_size=32, shuffle=False)
 
         model = GlobalProbe(train_dataset.embed_dim(), num_outputs, curr_max_layer, task).to(DEVICE)
-        optimizer = torch.optim.Adam([{'params': list(filter(lambda p: p.requires_grad, model.parameters())), 'lr': 0.0001}])
+        # optimizer = torch.optim.AdamW([{'params': list(filter(lambda p: p.requires_grad, model.parameters())), 'lr': 0.0001 if task == "regression" else 0.001}])
+        optimizer = torch.optim.AdamW([
+            {'params': [model.weights], 'lr': 0.001},
+            {'params': model.linear.parameters(), 'lr': 0.0001}
+        ])
 
-        epoch_weights, epoch_losses, best_model = train_loop(model, train_dataloader, valid_dataloader, loss_fn, optimizer, epochs=100, task=task)
+        epoch_weights, epoch_losses, best_model = train_loop(model, train_dataloader, valid_dataloader, loss_fn, optimizer, epochs=1000, task=task)
         weights.append(epoch_weights)
         losses.append(epoch_losses)
 
@@ -288,6 +307,7 @@ def routine(
                 tmp_targs.append(targets.cpu())
         preds.append(torch.cat(tmp_preds))
         targs.append(torch.cat(tmp_targs))
+    print("Performance on", dataset_name, ":", compute_metric(np.array(preds[-1]).squeeze(), np.array(targs[-1]).squeeze(), "r2" if task == "regression" else "mcc", task))
     
     print("\n".join([str(list(scipy.special.softmax(x))) for x in weights]))
     with open(embed_dir / f"probe_weights_{dataset_name}_{num_outputs}.pkl", "wb") as f:
@@ -299,7 +319,7 @@ if __name__ == "__main__":
     parser.add_argument("--data-path", type=Path, required=True, help="Path to the CSV file containing the dataset.")
     parser.add_argument("--embed-path", type=Path, required=True, help="Output folder to save results.")
     parser.add_argument("--num-layers", type=int, required=True, help="Number of layers in the model to consider for probing.")
-    parser.add_argument("--num-outputs", type=int, required=True, help="Number of output classes for classification tasks or 1 for regression.")
+    parser.add_argument("--num-outputs", type=int, default=1, help="Number of output classes for classification tasks or 1 for regression. Not considered in SCOPe datasets")
     parser.add_argument('--level', type=str, default=None, choices=["superfamily", "fold"], 
                         help='Level of SCOPe hierarchy to consider. ' \
                         'Only used for SCOPe fold/superfamily prediction.')

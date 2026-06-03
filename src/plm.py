@@ -1,7 +1,7 @@
 import os
 
-os.environ["TORCHINDUCTOR_CACHE_DIR"] = "/home/s8rojoer/.cache"
-os.environ.setdefault("LOGNAME", "s8rojoer")
+# os.environ["TORCHINDUCTOR_CACHE_DIR"] = "/home/s8rojoer/.cache"
+# os.environ.setdefault("LOGNAME", "s8rojoer")
 
 import re
 import pickle
@@ -59,7 +59,16 @@ PLM_MODELS = {
 }
 
 
-def save_embeddings(embeddings: np.ndarray, aa_level: bool, fp, positions: list | None) -> None:
+def save_embeddings(embeddings: np.ndarray, aa_level: bool, fp, positions: list | None = None) -> None:
+    """
+    Save embeddings to a file, either at amino acid level or mean pooled.
+    
+    Args:
+        embeddings: The embeddings to save.
+        aa_level: Whether to save amino acid level embeddings or mean pooled embeddings.
+        fp: The file pointer to save the embeddings to.
+        positions: Optional list of positions to select from the embeddings (only used if aa_level is True).
+    """
     if positions is not None and aa_level is False:
         raise ValueError("Positions can only be used when aa_level is True.")
     if aa_level:

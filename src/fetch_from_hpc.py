@@ -15,7 +15,7 @@ def scp(origin: str, target: str) -> str:
     #     print(("/scratch/SCRATCH_SAS/roman/SMTB" / Path(target) / origin.split("/")[-1]).exists())
     if ("/scratch/SCRATCH_SAS/roman/SMTB" / Path(target) / origin.split("/")[-1]).exists():
         return ""
-    return f"scp uds:/scratch/chair_kalinina/s8rojoer/SMTB/{origin} /scratch/SCRATCH_SAS/roman/SMTB/{target}"
+    return f"scp uds2:/scratch/chair_kalinina/s8rojoer/SMTB/{origin} /scratch/SCRATCH_SAS/roman/SMTB/{target}"
 
 
 def fetch(cmd):
@@ -24,7 +24,7 @@ def fetch(cmd):
 
 
 cmds = []
-for model in ["progen2_small", "progen2_medium"]:# ["prostt5", "prott5"]:  # {"progen2_small", "progen2_medium", "progen2_large", "protgpt2"}:
+for model in ["prostt5"]:  # ["progen2_small", "progen2_medium"]:# ["prostt5", "prott5"]:  # {"progen2_small", "progen2_medium", "progen2_large", "protgpt2"}:
     for layer in range(LAYERS[model] + 1):
         # for dataset in {"deeploc2", "deeploc2_bin", "fluorescence", "fluorescence_classification", "meltome_atlas", "stability"}:
         #     stumb = f"embeddings/{model}/{dataset}/layer_{layer}"
@@ -49,11 +49,11 @@ for model in ["progen2_small", "progen2_medium"]:# ["prostt5", "prott5"]:  # {"p
         if model != "protgpt2":
             stumb = f"aa_embeddings/{model}/binding/layer_{layer}"
             (BASE / stumb).mkdir(parents=True, exist_ok=True)
-            cmds.append(scp(stumb + f"/ids.csv", stumb))
-            cmds.append(scp(stumb + f"/noverlap.csv", stumb))
-            cmds.append(scp(stumb + f"/predictions_lr.pkl", stumb))
-            cmds.append(scp(stumb + f"/predictions_knn.pkl", stumb))
-            cmds.append(scp(stumb + f"/pca.pkl", stumb))
+            # cmds.append(scp(stumb + f"/ids.csv", stumb))
+            # cmds.append(scp(stumb + f"/noverlap.csv", stumb))
+            cmds.append(scp(stumb + f"/predictions_lr_10_2.pkl", stumb + f"/predictions_lr.pkl"))
+            # cmds.append(scp(stumb + f"/predictions_knn_2.pkl", stumb + f"/predictions_knn.pkl"))
+            # cmds.append(scp(stumb + f"/pca.pkl", stumb))
 
             # stumb_scope = f"aa_embeddings/{model}/scope_40_208/layer_{layer}"
             # (BASE / stumb_scope).mkdir(parents=True, exist_ok=True)

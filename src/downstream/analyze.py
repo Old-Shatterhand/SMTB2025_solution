@@ -40,7 +40,6 @@ def build_wp_dataloader(df: pd.DataFrame, embed_path: Path, labels: str | list[s
     Returns:
         Tuple of (inputs, targets) where inputs are the embeddings and targets are the labels.
     """
-    embed_path = Path(embed_path)
     embeddings = []
     valid_ids = set()
     for i, idx in enumerate(df["ID"].values):
@@ -122,10 +121,7 @@ def build_dataloader(df: pd.DataFrame, embed_path: Path, labels: str | list[str]
         Tuple of (inputs, targets) where inputs are the embeddings and targets are the labels.
 
     """
-    if isinstance(labels, int):
-        return build_aa_dataloader(df, embed_path, labels)
-    else:
-        return build_wp_dataloader(df, embed_path, labels)
+    return (build_aa_dataloader if isinstance(labels, int) else build_wp_dataloader)(df, embed_path, labels)
 
 
 def knn(
@@ -161,10 +157,7 @@ def knn(
     Returns:
         Tuple[np.ndarray, np.ndarray]: Distances and indices of k-nearest neighbors for ID and NOverlap computation.
     """
-    if task == "regression":
-        knn = kNN_reg(output_type="numpy", n_neighbors=n_neighbors).fit(train_X, train_y)
-    else:
-        knn = kNN_class(output_type="numpy", n_neighbors=n_neighbors).fit(train_X, train_y)
+    knn = (kNN_reg if task == "regression" else kNN_class)(output_type="numpy", n_neighbors=n_neighbors).fit(train_X, train_y)
 
     if not (r_file := (out_folder / f"predictions_knn{suffix}.pkl")).exists() or force:
         print("Evaluating kNN model")
@@ -222,6 +215,8 @@ def train_lr_head(
         model = MultiOutputClassifier(cuml.LogisticRegression(output_type="numpy", class_weight="balanced"), n_jobs=1).fit(train_X, train_y.reshape(-1, 1))
     elif task == "multi-label":
         model = MultiOutputClassifier(cuml.LogisticRegression(output_type="numpy", class_weight="balanced"), n_jobs=1).fit(train_X, train_y)
+    else:
+        raise ValueError(f"Unsupported task type: {task}")
 
     print("Evaluating LR model")
     if task == "regression":
@@ -246,6 +241,18 @@ def prepare_dataset(
         min_: int | None = None,
         max_rows: int | None = None,
     ) -> tuple[pd.DataFrame, str | list[str] | int, str, str, str]:
+    """
+    Prepare the dataset for analysis by loading it, filtering it based on the provided arguments, and determining the appropriate labels and suffixes for model training and result saving.
+
+    Args:
+        dataset_name (Path): Name of the dataset, used to determine specific processing steps.
+        data_path (Path): Path to the dataset CSV file.
+        n_classes (int | None): Number of classes for amino-acid level prediction. If None, assumes whole-protein level prediction.
+        level (str | None): Level of SCOPe hierarchy to consider for whole-protein level prediction. Should be either "superfamily" or "fold". Only used if n_classes is None.
+        top (int | None): Number of top labels to consider for SCOPe fold/superfamily prediction. Mutually exclusive with min_. Only used if n_classes is None and dataset is SCOPe.
+        min_ (int | None): Minimum number of samples for a label to be included for SCOPe fold/superfamily prediction. Mutually exclusive with top. Only used if n_classes is None and dataset is SCOPe.
+        max_rows (int | None): Maximum number of rows to load from the dataset. If None, loads the entire dataset. Useful for debugging with smaller subsets of the data.
+    """
     # load the dataset and reduce it to the sampled sequences only (if applicable)
     df = pd.read_csv(data_path)
     df = df.sample(n=len(df))
@@ -428,10 +435,10 @@ if __name__ == "__main__":
     parser.add_argument('--data-path', type=Path, required=True)
     parser.add_argument("--embed-base", type=Path, required=True)
     parser.add_argument('--max-layer', type=int, required=True)
-    parser.add_argument('--k', type=int, default=10, 
-                        help='Number of neighbors for all neighbor-based computations')
     parser.add_argument('--task', type=str, default='multi-class', choices=['regression', 'binary', 'multi-class', 'multi-label'], 
                         help='Type of prediction task.') 
+    parser.add_argument('--k', type=int, default=10, 
+                        help='Number of neighbors for all neighbor-based computations')
     parser.add_argument('--level', type=str, default=None, choices=["superfamily", "fold"], 
                         help='Level of SCOPe hierarchy to consider. ' \
                         'Only used for SCOPe fold/superfamily prediction.')
@@ -455,4 +462,3 @@ if __name__ == "__main__":
     parser.add_argument('--start-layer', type=int, default=0, help='Layer to start the analysis from')
     args = parser.parse_args()
     main(args)
-

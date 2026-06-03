@@ -33,6 +33,7 @@ def process_scope_40(save_path: Path, secstr_path: Path) -> None:
 
     Args:
         save_path (Path): Directory to save the processed dataset.
+        secstr_path (Path): Path to the secondary structure file (CSV) containing DSSP annotations.
     """
     # TODO: Download SCOPe_40 from https://scop.berkeley.edu/downloads/scopeseq-2.08/astral-scopedom-seqres-gd-sel-gs-bib-40-2.08.fa
 

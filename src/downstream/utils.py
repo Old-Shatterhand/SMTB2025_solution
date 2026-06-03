@@ -9,11 +9,7 @@ def compute_id_2NN(distances: np.ndarray) -> float:
     Based on the implementation from DADApy
 
     Args:
-        algorithm (str): 'base' to perform the linear fit, 'ml' to perform maximum likelihood
-        mu_fraction (float): fraction of mus that will be considered for the estimate (discard highest mus)
-        data_fraction (float): fraction of randomly sampled points used to compute the id
-        n_iter (int): number of times the ID is computed on data subsets (useful when decimation < 1)
-        set_attr (bool): whether to change the class attributes as a result of the computation
+        distances (np.ndarray): a 2D array of shape (n_samples, 3) where each row contains the distances to the 1st and 2nd nearest neighbors, and the ratio of these distances
 
     Returns:
         intrinsic_dim (float): the estimated intrinsic dimension
