@@ -5,6 +5,8 @@ import argparse
 from pathlib import Path
 from typing import Any, Literal
 
+import cupy
+import cupyx
 import scipy
 import torch
 import numpy as np
@@ -57,8 +59,58 @@ class GlobalProbe(nn.Module):
         return x
 
 
+class CuPyGlobalProbe:
+    def __init__(self, num_layers: int, num_feats):
+        # The models follows y_hat = mixings @ X @ weights
+        self.num_layers = num_layers
+        self.num_feats = num_feats
+
+        self.mixings = cupy.array(np.random.normal(size=num_layers + 1))
+        self.weights = cupy.array(np.random.normal(size=num_feats + 1))
+    
+    def fit(self, X: cupy.ndarray, y: cupy.ndarray, epsilon=1e-5, epochs=20, min_delta=1e-4):
+        assert X.shape[0] == self.num_layers + 1 and X.shape[2] == self.num_feats, f"Expected X to have shape (L, S, F), ({self.num_layers}, S, {self.num_feats}), got {X.shape} instead."
+        biased_X = cupy.concatenate([cupy.ones((X.shape[0], X.shape[1], 1)), X], axis=2)
+        losses = []
+        for epoch in range(epochs):
+            # Step 1: Solve for mixings given current weights
+            self.mixings = self._solve_for_mixings(biased_X, y, epsilon)
+
+            # Step 2: Solve for weights given current mixings
+            self.weights = self._solve_for_weights(biased_X, y)
+
+            losses.append(cupy.mean((y - self.predict(X)) ** 2))
+            print(f"Epoch {epoch + 1}/{epochs}, Loss: {losses[-1]:.4f}")
+
+            # Check for convergence (this is a placeholder, you should implement a proper convergence check based on the change in loss or parameters)
+            if epoch > 3 and abs(losses[-1] - losses[-2]) < min_delta:
+                print(f"Converged at epoch {epoch + 1}")
+                break
+        return losses, self
+    
+    def predict(self, X: cupy.ndarray):
+        assert X.shape[0] == self.num_layers + 1 and X.shape[2] == self.num_feats, f"Expected X to have shape (L, S, F), ({self.num_layers}, S, {self.num_feats}), got {X.shape} instead."
+        biased_X = cupy.concatenate([cupy.ones((X.shape[0], X.shape[1], 1)), X], axis=2)
+        return cupy.tensordot(cupyx.scipy.special.softmax(self.mixings), biased_X, axes=1) @ self.weights # type: ignore
+    
+    def _solve_for_mixings(self, X: cupy.ndarray, y: cupy.ndarray, epsilon=1e-5):
+        # Solve for the optimal mixings given the current weights
+        tmp = (X @ self.weights).transpose()
+        tmp_inv = cupy.linalg.pinv(tmp).transpose() # type: ignore
+        soft_a_hat = cupy.maximum(y @ tmp_inv, epsilon)
+        return cupy.log(soft_a_hat)
+    
+    def _solve_for_weights(self, X: cupy.ndarray, y: cupy.ndarray):
+        # Solve for the optimal weights given the current mixings
+        soft_mixings = cupyx.scipy.special.softmax(self.mixings) # type: ignore
+        tmp = (cupy.tensordot(soft_mixings, X, axes=1).transpose() @ (cupy.tensordot(soft_mixings, X, axes=1)))
+        tmp_inv = cupy.linalg.pinv(tmp).transpose() # type: ignore
+        tmp_2 = tmp_inv @ cupy.tensordot(soft_mixings, X, axes=1).transpose()
+        return tmp_2 @ y
+
+
 class GlobalDataset(Dataset):
-    def __init__(self, df: pd.DataFrame, split: str, embed_dir: Path, max_layers: int, label: str, device: torch.device):
+    def __init__(self, df: pd.DataFrame, split: str, embed_dir: Path, max_layers: int, label: str, device: torch.device, task: Literal["regression", "binary", "multi-class", "multi-label"] = "binary") -> None:
         """
         Initializes the dataset by loading the representations for the specified split and preparing the labels.
         
@@ -69,13 +121,14 @@ class GlobalDataset(Dataset):
             max_layers (int): The maximum number of layers to consider for probing.
             label (str): The name of the column in the DataFrame that contains the labels.
             device (torch.device): The device to load the tensors onto (e.g., CPU or GPU).
+            task (Literal["regression", "binary", "multi-class", "multi-label"]): The type of task for the dataset.
         """
         self.device = device
         self._layer_limit = max_layers + 1
         self._current_limit = self._layer_limit  # The limit up to which layers are currently being used (can be adjusted during training to avoid multiple loads of the data)
-        self.data, self.labels = self._load(df[df["split"] == split], embed_dir, label)
+        self.data, self.labels = self._load(df[df["split"] == split], embed_dir, label, return_type="cp" if task == "regression" else "pt")
     
-    def _load(self, df: pd.DataFrame, embed_dir: Path, label: str) -> tuple[list[torch.Tensor], torch.Tensor]:
+    def _load(self, df: pd.DataFrame, embed_dir: Path, label: str, return_type: Literal["pt", "cp"] = "pt") -> tuple[list[torch.Tensor], torch.Tensor]:
         """Loads the representations for the specified split and prepares the labels.
         
         Args:
@@ -84,11 +137,14 @@ class GlobalDataset(Dataset):
             label (str): The name of the column in the DataFrame that contains the labels.
         """
         train_X, labels = build_wp_dataloader(df, embed_dir / "layer_0", label)
-        data = [torch.tensor(train_X).to(self.device)] + [
-            torch.tensor(build_wp_dataloader(df, embed_dir / f"layer_{i}", label)[0]).to(self.device) for i in range(1, self._layer_limit)
-        ]
-        labels = torch.tensor(labels).to(self.device)
-        return data, labels
+        data = [train_X] + [build_wp_dataloader(df, embed_dir / f"layer_{i}", label)[0] for i in range(1, self._layer_limit)]
+        if return_type == "pt":
+            # return [torch.tensor(d, dtype=torch.float32).to(self.device) for d in data], torch.tensor(labels, dtype=torch.float32 if labels.dtype == np.float32 else torch.long).to(self.device)
+            return torch.tensor(data, dtype=torch.float32).to(self.device), torch.tensor(labels, dtype=torch.float32 if labels.dtype == np.float32 else torch.long).to(self.device)
+        elif return_type == "cp":
+            return cupy.array(data), cupy.array(labels)
+        else:
+            raise ValueError(f"Unsupported return type: {return_type}")
     
     def set_layer_limit(self, limit: int) -> None:
         """
@@ -114,29 +170,29 @@ class GlobalDataset(Dataset):
         return self.data[0].shape[1]
 
 
-def calc_loss(loss_fn, predictions: torch.Tensor, targets: torch.Tensor, task: Literal["regression", "binary", "multi-class", "multi-label"]) -> torch.Tensor:
+def calc_loss(loss_fn, predictions: torch.Tensor, targets: torch.Tensor, task: Literal["binary", "multi-class", "multi-label"]) -> torch.Tensor:
     """Calculates the loss between predictions and targets based on the specified task type.
     
     Args:
         predictions (torch.Tensor): The predicted outputs from the model.
         targets (torch.Tensor): The true labels for the samples.
-        task (Literal["regression", "binary", "multi-class", "multi-label"]): The type of prediction task being performed, which determines the loss function used during training.
+        task (Literal["binary", "multi-class", "multi-label"]): The type of prediction task being performed, which determines the loss function used during training.
 
     Returns:
         torch.Tensor: The calculated loss value.
     """
-    if task == "binary" or task == "multi-label":
+    if task in {"binary", "multi-label"}:
         return loss_fn(predictions.squeeze(), targets)
     if task == "multi-class":
         return loss_fn(predictions, targets.long())
-    return loss_fn(predictions, targets)
+    raise ValueError(f"Unsupported task type: {task}")
 
 
 def validation_loop(
         model: torch.nn.Module, 
         dataloader: torch.utils.data.DataLoader, 
         loss_fn: torch.nn.Module,
-        task: Literal["regression", "binary", "multi-class", "multi-label"] = "regression"
+        task: Literal["binary", "multi-class", "multi-label"] = "binary",
     ) -> tuple[float, float, float]:
     """Runs the validation process and calculates average loss.
     
@@ -144,6 +200,7 @@ def validation_loop(
         model (torch.nn.Module): The model being evaluated.
         dataloader (torch.utils.data.DataLoader): The DataLoader for the validation dataset.
         loss_fn (torch.nn.Module): The loss function to calculate the validation loss.
+        task (Literal["binary", "multi-class", "multi-label"]): The type of prediction task being performed, which determines the loss function used during validation.
 
     Returns:
         float: The average validation loss across all batches.
@@ -168,7 +225,7 @@ def train_loop(
         loss_fn: torch.nn.Module, 
         optimizer: torch.optim.Optimizer, 
         epochs: int,
-        task: Literal["regression", "binary", "multi-class", "multi-label"] = "regression"
+        task: Literal["binary", "multi-class", "multi-label"] = "binary",
     ) -> tuple[np.ndarray | None, dict[str, list[float]], torch.nn.Module]:
     """Runs the selective fine-tuning process with validation.
     
@@ -191,11 +248,7 @@ def train_loop(
     best_state_dict = None
     losses = {"train": [], "val": []}
     epochs_without_improvement = 0
-    if task != "regression":
-        lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=LR_SCHEDULER_PATIENCE)
-    else:
-        lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=LR_SCHEDULER_PATIENCE)
-        # lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=LR_SCHEDULER_PATIENCE, gamma=0.1)
+    lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=LR_SCHEDULER_PATIENCE)
 
     for epoch in range(epochs):
         train_loss, samples = 0, 0
@@ -261,52 +314,59 @@ def routine(
     df, label, val_name, _, _ = prepare_dataset(dataset_name, data_path, None, level, top, min_, max_rows=1000)
     if level is not None:
         num_outputs = df[label].max() + 1
-    train_dataset = GlobalDataset(df, "train", embed_dir, num_layers, label, device=DEVICE)
-    valid_dataset = GlobalDataset(df, val_name, embed_dir, num_layers, label, device=DEVICE)
+    train_dataset = GlobalDataset(df, "train", embed_dir, num_layers, label, device=DEVICE, task=task)
+    valid_dataset = GlobalDataset(df, val_name, embed_dir, num_layers, label, device=DEVICE, task=task)
     weights, losses, preds, targs = [], [], [], []
 
     if task == "binary":
         pos_weight = torch.tensor([sum(train_dataset.labels == 0) / sum(train_dataset.labels == 1)]).to(DEVICE)
         loss_fn = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     elif task == "multi-label":
-        pos_counts = (train_dataset.labels == 1).sum(dim=0).float()  # shape: [num_outputs]
-        neg_counts = (train_dataset.labels == 0).sum(dim=0).float()  # shape: [num_outputs]
+        pos_counts = (train_dataset.labels == 1).sum(dim=0).float()
+        neg_counts = (train_dataset.labels == 0).sum(dim=0).float()
         pos_weight = (neg_counts / pos_counts).squeeze().to(DEVICE)
         loss_fn = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     elif task == "multi-class":
         loss_fn = torch.nn.CrossEntropyLoss()
     elif task == "regression":
-        loss_fn = torch.nn.HuberLoss()  # torch.nn.MSELoss()
+        pass
     else:
         raise ValueError(f"Unsupported task type: {task}")
     
     for curr_max_layer in range(num_layers, num_layers + 1):
         print(f"\n=== Training with up to layer {curr_max_layer} ===")
         train_dataset.set_layer_limit(curr_max_layer)
-        train_dataloader = DataLoader(train_dataset, batch_size=32, shuffle=True)
-
         valid_dataset.set_layer_limit(curr_max_layer)
-        valid_dataloader = DataLoader(valid_dataset, batch_size=32, shuffle=False)
 
-        model = GlobalProbe(train_dataset.embed_dim(), num_outputs, curr_max_layer, task).to(DEVICE)
-        # optimizer = torch.optim.AdamW([{'params': list(filter(lambda p: p.requires_grad, model.parameters())), 'lr': 0.0001 if task == "regression" else 0.001}])
-        optimizer = torch.optim.AdamW([
-            {'params': [model.weights], 'lr': 0.001},
-            {'params': model.linear.parameters(), 'lr': 0.0001}
-        ])
+        if task == "regression":
+            model = CuPyGlobalProbe(curr_max_layer, train_dataset.embed_dim())
+            epoch_losses, model = model.fit(train_dataset.data, train_dataset.labels, epochs=50)
+            weights.append(model.mixings.get())
+            losses.append(epoch_losses)
+            preds.append(model.predict(train_dataset.data).get())
+            targs.append(train_dataset.labels.get())
+        else:
+            train_dataloader = DataLoader(train_dataset, batch_size=32, shuffle=True)
+            valid_dataloader = DataLoader(valid_dataset, batch_size=32, shuffle=False)
 
-        epoch_weights, epoch_losses, best_model = train_loop(model, train_dataloader, valid_dataloader, loss_fn, optimizer, epochs=1000, task=task)
-        weights.append(epoch_weights)
-        losses.append(epoch_losses)
+            model = GlobalProbe(train_dataset.embed_dim(), num_outputs, curr_max_layer, task).to(DEVICE)
+            optimizer = torch.optim.AdamW([
+                {'params': [model.weights], 'lr': 0.001},
+                {'params': model.linear.parameters(), 'lr': 0.0001}
+            ])
 
-        tmp_preds, tmp_targs = [], []
-        with torch.no_grad(): # Disable gradient calculations during validation
-            for batch, targets in valid_dataloader:
-                predictions = best_model(batch)
-                tmp_preds.append(predictions.cpu())
-                tmp_targs.append(targets.cpu())
-        preds.append(torch.cat(tmp_preds))
-        targs.append(torch.cat(tmp_targs))
+            epoch_weights, epoch_losses, best_model = train_loop(model, train_dataloader, valid_dataloader, loss_fn, optimizer, epochs=1000, task=task)
+            weights.append(epoch_weights)
+            losses.append(epoch_losses)
+
+            tmp_preds, tmp_targs = [], []
+            with torch.no_grad(): # Disable gradient calculations during validation
+                for batch, targets in valid_dataloader:
+                    predictions = best_model(batch)
+                    tmp_preds.append(predictions.cpu())
+                    tmp_targs.append(targets.cpu())
+            preds.append(torch.cat(tmp_preds))
+            targs.append(torch.cat(tmp_targs))
     print("Performance on", dataset_name, ":", compute_metric(np.array(preds[-1]).squeeze(), np.array(targs[-1]).squeeze(), "r2" if task == "regression" else "mcc", task))
     
     print("\n".join([str(list(scipy.special.softmax(x))) for x in weights]))

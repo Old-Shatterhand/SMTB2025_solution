@@ -1,5 +1,6 @@
 import pickle
 import argparse
+import time
 
 import torch
 import pandas as pd
@@ -8,8 +9,7 @@ import lightning as L
 from transformers import AutoTokenizer
 from pathlib import Path
 
-from src.plm import PLM_MODELS
-from src.viz.constants import LAYERS
+from src.viz.constants import LAYERS, PLM_MODELS
 
 
 def collate(batch):
@@ -156,6 +156,37 @@ class ESMModel(L.LightningModule):
         return {"optimizer": optimizer, "lr_scheduler": scheduler, "monitor": "val/loss"}
 
 
+def run_single_layer(args: argparse.Namespace, layer: int):
+    """
+    Runs the training process for a single layer of ESM embeddings.
+    
+    Args:
+        args: Command-line arguments containing paths and training parameters.
+        layer: The layer of ESM embeddings to train on.
+    """
+    logger = L.pytorch.loggers.CSVLogger("logs", version=str(int(time.time() * 1000)))
+    trainer = L.Trainer(
+        max_epochs=args.max_epochs,
+        accelerator="auto",
+        logger=logger,
+        gradient_clip_val=1.0,
+        callbacks=[
+            L.pytorch.callbacks.ModelCheckpoint(monitor="val/loss", mode="min"),
+            L.pytorch.callbacks.EarlyStopping(monitor="val/loss", mode="min", patience=30),
+        ],
+    )
+    data_module = ESMDataModule(
+        df_path=args.df_path,
+        embed_path=args.embed_path / f"layer_{layer}",
+        model=args.model,
+        layer=layer,
+        batch_size=args.batch_size,
+    )
+    model = ESMModel()
+    trainer.fit(model, data_module)
+    pd.read_csv(Path(logger.log_dir) / "metrics.csv").to_csv(args.embed_path / f"layer_{layer}" / "mlm.csv", index=False)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train a model for masked language modeling on ESM embeddings.")
     parser.add_argument(
@@ -176,24 +207,4 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     for layer in range(LAYERS[args.model] + 1):
-        logger = L.pytorch.loggers.CSVLogger("logs")
-        trainer = L.Trainer(
-            max_epochs=args.max_epochs,
-            accelerator="auto",
-            logger=logger,
-            gradient_clip_val=1.0,
-            callbacks=[
-                L.pytorch.callbacks.ModelCheckpoint(monitor="val/loss", mode="min"),
-                L.pytorch.callbacks.EarlyStopping(monitor="val/loss", mode="min", patience=30),
-            ],
-        )
-        data_module = ESMDataModule(
-            df_path=args.df_path,
-            embed_path=args.embed_path / f"layer_{layer}",
-            model=args.model,
-            layer=layer,
-            batch_size=args.batch_size,
-        )
-        model = ESMModel()
-        trainer.fit(model, data_module)
-        pd.read_csv(Path(logger.log_dir) / "metrics.csv").to_csv(args.embed_path / f"layer_{layer}" / "mlm.csv", index=False)
+        run_single_layer(args, layer)

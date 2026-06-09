@@ -233,7 +233,7 @@ def train_lr_head(
 
 
 def prepare_dataset(
-        dataset_name: Path, 
+        dataset_name: str, 
         data_path: Path, 
         n_classes: int | None = None, 
         level: str | None = None, 

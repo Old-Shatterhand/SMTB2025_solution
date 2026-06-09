@@ -19,7 +19,7 @@ from esm.tokenization import EsmSequenceTokenizer
 from esm.sdk.api import ESMProtein, LogitsConfig
 from transformers import AutoModel, AutoTokenizer, T5Tokenizer, AutoConfig, AutoModelForCausalLM
 
-from src.viz.constants import LAYERS
+from src.viz.constants import LAYERS, PLM_MODELS
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 AA_OHE = {
@@ -43,19 +43,6 @@ AA_OHE = {
     "V": 17,
     "W": 18,
     "Y": 19,
-}
-
-PLM_MODELS = {
-    "esm_t6": "facebook/esm2_t6_8M_UR50D",
-    "esm_t12": "facebook/esm2_t12_35M_UR50D",
-    "esm_t30": "facebook/esm2_t30_150M_UR50D",
-    "esm_t33": "facebook/esm2_t33_650M_UR50D",
-    "esm_t36": "facebook/esm2_t36_3B_UR50D",
-    "ankh_base": "ElnaggarLab/ankh-base",
-    "ankh_large": "ElnaggarLab/ankh-large",
-    "progen2_small": "hugohrban/progen2-small",
-    "progen2_medium": "hugohrban/progen2-medium",
-    "progen2_large": "hugohrban/progen2-large",
 }
 
 
@@ -98,13 +85,12 @@ def run_esm(
         empty: Whether to use an untrained model.
         force: Whether to overwrite existing embeddings.
     """
-    for i in range(int(model_name.split("_")[1][1:]) + 1):
-        (output_path / f"layer_{i}").mkdir(parents=True, exist_ok=True)
-
     data = pd.read_csv(data_path)
-
     if "positions" in data.columns:
         data["positions"] = data["positions"].apply(eval)
+
+    for i in range(int(model_name.split("_")[1][1:]) + 1):
+        (output_path / f"layer_{i}").mkdir(parents=True, exist_ok=True)
 
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     if not empty:
@@ -126,8 +112,7 @@ def run_esm(
             del inputs
         for i, layer in enumerate(outputs.hidden_states):
             with open(output_path / f"layer_{i}" / f"{row['ID']}.pkl", "wb") as f:
-                positions = row.get("positions", None)
-                save_embeddings(layer[0, 1:-1].cpu().numpy(), aa_level, f, positions)
+                save_embeddings(layer[0, 1:-1].cpu().numpy(), aa_level, f, row.get("positions", None))
         del outputs
 
 
@@ -189,8 +174,10 @@ def run_ankh(
         force: Whether to overwrite existing embeddings.
     """
     data = pd.read_csv(data_path)
-    num_layers = 48
-    for i in range(num_layers + 1):
+    if "positions" in data.columns:
+        data["positions"] = data["positions"].apply(eval)
+    
+    for i in range(49):
         (output_path / f"layer_{i}").mkdir(parents=True, exist_ok=True)
 
     tokenizer = AutoTokenizer.from_pretrained(model_name)
@@ -199,17 +186,17 @@ def run_ankh(
     else:
         model = AutoModel.from_config(AutoConfig.from_pretrained(model_name)).to(DEVICE).eval()
 
-    for idx, seq in tqdm(data[["ID", "sequence"]].values):
-        if not force and (output_path / "layer_0" / f"{idx}.pkl").exists():
+    for _, row in tqdm(data.iterrows(), total=len(data), desc="Processing sequences"):
+        if not force and (output_path / "layer_0" / f"{row['ID']}.pkl").exists():
             continue
-        tokens = tokenizer.encode(seq[:1022], return_tensors="pt").to(DEVICE)
+        tokens = tokenizer.encode(row["sequence"][:1022].replace("<mask>", "<extra_id_0>"), return_tensors="pt").to(DEVICE)
         with torch.no_grad():
             embeddings = model.encoder(tokens, output_hidden_states=True)
             del tokens
 
-        for i in range(0, num_layers + 1):
-            with open(output_path / f"layer_{i}" / f"{idx}.pkl", "wb") as f:
-                save_embeddings(embeddings.hidden_states[i][0, 1:].cpu().numpy(), aa_level, f)
+        for i in range(0, 49):
+            with open(output_path / f"layer_{i}" / f"{row['ID']}.pkl", "wb") as f:
+                save_embeddings(embeddings.hidden_states[i][0, 1:].cpu().numpy(), aa_level, f, row.get("positions", None))
         del embeddings
 
 
@@ -225,20 +212,22 @@ def run_prostt5(data_path: Path, output_path: Path, aa_level: bool = False, empt
         force: Whether to overwrite existing embeddings.
     """
     data = pd.read_csv(data_path)
-    num_layers = 24
-    for i in range(num_layers + 1):
+    if "positions" in data.columns:
+        data["positions"] = data["positions"].apply(eval)
+
+    for i in range(25):
         (output_path / f"layer_{i}").mkdir(parents=True, exist_ok=True)
 
-    tokenizer = T5Tokenizer.from_pretrained("Rostlab/ProstT5")
+    tokenizer = T5Tokenizer.from_pretrained(PLM_MODELS["prostt5"])
     if not empty:
-        model = AutoModel.from_pretrained("Rostlab/ProstT5").to(DEVICE).eval()
+        model = AutoModel.from_pretrained(PLM_MODELS["prostt5"]).to(DEVICE).eval()
     else:
-        model = AutoModel.from_config(AutoConfig.from_pretrained("Rostlab/ProstT5")).to(DEVICE).eval()
+        model = AutoModel.from_config(AutoConfig.from_pretrained(PLM_MODELS["prostt5"])).to(DEVICE).eval()
 
-    for idx, seq in tqdm(data[["ID", "sequence"]].values):
-        if not force and (output_path / "layer_0" / f"{idx}.pkl").exists():
+    for _, row in tqdm(data.iterrows(), total=len(data), desc="Processing sequences"):
+        if not force and (output_path / "layer_0" / f"{row['ID']}.pkl").exists():
             continue
-        seq = "<AA2fold>" + " " + " ".join([aa.upper() for aa in re.sub(r"[UZOB]", "X", seq[:1022])])
+        seq = "<AA2fold>" + " " + " ".join([aa.upper() for aa in re.sub(r"[UZOB]", "X", row["sequence"][:1022])])
         tokens = tokenizer.batch_encode_plus([seq], add_special_tokens=True, padding="longest", return_tensors="pt").to(DEVICE)
 
         with torch.no_grad():
@@ -247,9 +236,9 @@ def run_prostt5(data_path: Path, output_path: Path, aa_level: bool = False, empt
             )
             del tokens
 
-        for i in range(0, num_layers + 1):
-            with open(output_path / f"layer_{i}" / f"{idx}.pkl", "wb") as f:
-                save_embeddings(embeddings.hidden_states[i][0, 1:-1].cpu().numpy(), aa_level, f)
+        for i in range(0, 25):
+            with open(output_path / f"layer_{i}" / f"{row['ID']}.pkl", "wb") as f:
+                save_embeddings(embeddings.hidden_states[i][0, 1:-1].cpu().numpy(), aa_level, f, row.get("positions", None))
         del embeddings
 
 
@@ -265,20 +254,22 @@ def run_prott5(data_path: Path, output_path: Path, aa_level: bool = False, empty
         force: Whether to overwrite existing embeddings.
     """
     data = pd.read_csv(data_path)
-    num_layers = 24
-    for i in range(num_layers + 1):
+    if "positions" in data.columns:
+        data["positions"] = data["positions"].apply(eval)
+
+    for i in range(25):
         (output_path / f"layer_{i}").mkdir(parents=True, exist_ok=True)
 
-    tokenizer = T5Tokenizer.from_pretrained("Rostlab/prot_t5_xl_uniref50")
+    tokenizer = T5Tokenizer.from_pretrained(PLM_MODELS["prott5"])
     if not empty:
-        model = AutoModel.from_pretrained("Rostlab/prot_t5_xl_uniref50").to(DEVICE).eval()
+        model = AutoModel.from_pretrained(PLM_MODELS["prott5"]).to(DEVICE).eval()
     else:
-        model = AutoModel.from_config(AutoConfig.from_pretrained("Rostlab/prot_t5_xl_uniref50")).to(DEVICE).eval()
+        model = AutoModel.from_config(AutoConfig.from_pretrained(PLM_MODELS["prott5"])).to(DEVICE).eval()
 
-    for idx, seq in tqdm(data[["ID", "sequence"]].values):
-        if not force and (output_path / "layer_0" / f"{idx}.pkl").exists():
+    for _, row in tqdm(data.iterrows(), total=len(data), desc="Processing sequences"):
+        if not force and (output_path / "layer_0" / f"{row['ID']}.pkl").exists():
             continue
-        seq = " ".join(list(re.sub(r"[UZOB]", "X", seq[:1022].upper())))
+        seq = " ".join([x if x != "?" else "<extra_id_0>" for x in re.sub(r"[UZOB]", "X", row["sequence"][:1022].replace("<mask>", "?").upper())])
         tokens = tokenizer.batch_encode_plus([seq], add_special_tokens=True, padding="longest", return_tensors="pt").to(DEVICE)
 
         with torch.no_grad():
@@ -287,9 +278,9 @@ def run_prott5(data_path: Path, output_path: Path, aa_level: bool = False, empty
             )
             del tokens
 
-        for i in range(0, num_layers + 1):
-            with open(output_path / f"layer_{i}" / f"{idx}.pkl", "wb") as f:
-                save_embeddings(embedding_repr.hidden_states[i][0, :-1].cpu().numpy(), aa_level, f)
+        for i in range(0, 25):
+            with open(output_path / f"layer_{i}" / f"{row['ID']}.pkl", "wb") as f:
+                save_embeddings(embedding_repr.hidden_states[i][0, :-1].cpu().numpy(), aa_level, f, row.get("positions", None))
         del embedding_repr
 
 
@@ -307,76 +298,38 @@ def run_progen2(
         empty: Whether to use an untrained model.
         force: Whether to overwrite existing embeddings.
     """
+    data = pd.read_csv(data_path)
+    if "positions" in data.columns:
+        data["positions"] = data["positions"].apply(eval)
+
     for i in range(LAYERS[model_name] + 1):
         (output_path / f"layer_{i}").mkdir(parents=True, exist_ok=True)
-
-    data = pd.read_csv(data_path)
 
     tokenizer = Tokenizer.from_pretrained(PLM_MODELS[model_name])
     if not empty:
         model = (
             AutoModelForCausalLM.from_pretrained(
-                PLM_MODELS[model_name], trust_remote_code=True, cache_dir="/home/s8rojoer/.cache/huggingface/"
-            )
-            .to(DEVICE)
-            .eval()
+                PLM_MODELS[model_name], trust_remote_code=True  # , cache_dir="/home/s8rojoer/.cache/huggingface/"
+            ).to(DEVICE).eval()
         )
     else:
         raise NotImplementedError("Empty ProGen2 model is not implemented.")
 
-    for idx, seq in tqdm(data[["ID", "sequence"]].values):
-        if not force and (output_path / "layer_0" / f"{idx}.pkl").exists():
+    for _, row in tqdm(data.iterrows(), total=len(data), desc="Processing sequences"):
+        if not force and (output_path / "layer_0" / f"{row['ID']}.pkl").exists():
             continue
-        input_ids = torch.tensor(tokenizer.encode(f"1{seq[:1022]}2").ids).to(DEVICE)
+        input_ids = torch.tensor(tokenizer.encode(f"1{row['sequence'][:1022]}2").ids).to(DEVICE)
         with torch.no_grad():
             outputs = model(input_ids, output_hidden_states=True)
             del input_ids
         for i, layer in enumerate(outputs.hidden_states[:-1]):
-            with open(output_path / f"layer_{i}" / f"{idx}.pkl", "wb") as f:
+            with open(output_path / f"layer_{i}" / f"{row['ID']}.pkl", "wb") as f:
                 save_embeddings(layer[0, 1:-1].cpu().numpy(), aa_level, f)
 
         # treat last layer differently, because ProGen2 developers are crazy!?
-        with open(output_path / f"layer_{LAYERS[model_name]}" / f"{idx}.pkl", "wb") as f:
-            save_embeddings(outputs.hidden_states[-1][1:-1].cpu().numpy(), aa_level, f)
+        with open(output_path / f"layer_{LAYERS[model_name]}" / f"{row['ID']}.pkl", "wb") as f:
+            save_embeddings(outputs.hidden_states[-1][1:-1].cpu().numpy(), aa_level, f, row.get("positions", None))
 
-        del outputs
-
-
-def run_rita(
-    model_name: str, data_path: Path, output_path: Path, aa_level: bool = False, empty: bool = False, force: bool = False
-) -> None:
-    """
-    Run RITA model to extract embeddings for sequences in the given data path.
-
-    Args:
-        model_name: Name of the RITA model to use.
-        data_path: Path to the CSV file containing sequences.
-        output_path: Path to save the extracted embeddings.
-        aa_level: Whether to save amino acid level embeddings or mean pooled embeddings.
-        empty: Whether to use an untrained model.
-        force: Whether to overwrite existing embeddings.
-    """
-    for i in range(LAYERS[model_name] + 1):
-        (output_path / f"layer_{i}").mkdir(parents=True, exist_ok=True)
-
-    data = pd.read_csv(data_path)
-
-    tokenizer = AutoTokenizer.from_pretrained(PLM_MODELS[model_name], trust_remote_code=True)
-    if not empty:
-        model = AutoModelForCausalLM.from_pretrained(PLM_MODELS[model_name], trust_remote_code=True).to(DEVICE).eval()
-    else:
-        raise NotImplementedError("Empty RITA model is not implemented.")
-
-    for idx, seq in tqdm(data[["ID", "sequence"]].values):
-        if not force and (output_path / "layer_0" / f"{idx}.pkl").exists():
-            continue
-        tokens = torch.tensor(tokenizer.encode(seq[:1022])).to(DEVICE).reshape(1, -1)
-        with torch.no_grad():
-            outputs = model(tokens, output_hidden_states=True)
-            del tokens
-        for i, layer in enumerate(outputs.hidden_states):
-            with open(output_path / f"layer_{i}" / f"{idx}.pkl", "wb") as f:
-                save_embeddings(layer[0, :-1].cpu().numpy(), aa_level, f)
         del outputs
 
 
@@ -391,11 +344,10 @@ def run_protgpt2(data_path: Path, output_path: Path, empty: bool = False, force:
         empty: Whether to use an untrained model.
         force: Whether to overwrite existing embeddings.
     """
-    num_layers = 36
-    for i in range(num_layers + 1):
-        (output_path / f"layer_{i}").mkdir(parents=True, exist_ok=True)
-
     data = pd.read_csv(data_path)
+
+    for i in range(37):
+        (output_path / f"layer_{i}").mkdir(parents=True, exist_ok=True)
 
     tokenizer = AutoTokenizer.from_pretrained("nferruz/ProtGPT2", trust_remote_code=True)
     if not empty:
@@ -499,7 +451,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     print(sys.argv[1:])
-    # args.model_name = args.model_name.lower().replace("_", "-")
 
     if "esmc" in args.model_name:
         run_esmc(args.model_name, args.data_path, args.output_path, args.aa_level, args.empty, args.force)
@@ -513,8 +464,6 @@ if __name__ == "__main__":
         run_prostt5(args.data_path, args.output_path, args.aa_level, args.empty, args.force)
     elif "progen" in args.model_name:
         run_progen2(args.model_name, args.data_path, args.output_path, args.aa_level, args.empty, args.force)
-    elif "rita" in args.model_name:
-        run_rita(args.model_name, args.data_path, args.output_path, args.aa_level, args.empty, args.force)
     elif "protgpt2" in args.model_name:
         run_protgpt2(args.data_path, args.output_path, args.empty, args.force)
     elif "ohe" in args.model_name:
