@@ -1,10 +1,10 @@
-from argparse import ArgumentParser
+import argparse
 from pathlib import Path
 
 import pandas as pd
 
 
-def process_stability(save_path: Path):
+def process_stability(save_path: Path) -> None:
     """
     Process the stability dataset and save it to the specified path.
 
@@ -27,7 +27,7 @@ def process_stability(save_path: Path):
 
 
 if __name__ == "__main__":
-    parser = ArgumentParser()
+    parser = argparse.ArgumentParser()
     parser.add_argument("--save-path", type=str, required=True, help="Path to save the processed dataset")
     args = parser.parse_args()
 

@@ -1,12 +1,12 @@
-from argparse import ArgumentParser
+import argparse
 from pathlib import Path
 
-from Bio import SeqIO
 import numpy as np
 import pandas as pd
+from Bio import SeqIO
 
 
-def seq2rec(seq) -> dict:
+def seq2rec(seq: SeqIO.SeqRecord) -> dict:
     """
     Convert a Bio.SeqRecord to a dictionary with sequence and SCOPe classification levels.
 
@@ -41,7 +41,7 @@ def process_scope_40(save_path: Path, secstr_path: Path) -> None:
         scope = list(SeqIO.parse(f, "fasta"))
 
     data = [seq2rec(seq) for seq in scope]
-    df = pd.DataFrame(data)# sorted(dict(df[args.level].value_counts()).items(), key=lambda x: x[1], reverse=True)
+    df = pd.DataFrame(data)
     class_map = {c: i for i, (c, _) in enumerate(sorted(dict(df["class_"].value_counts()).items(), key=lambda x: x[1], reverse=True))}
     fold_map = {f: i for i, (f, _) in enumerate(sorted(dict(df["fold"].value_counts()).items(), key=lambda x: x[1], reverse=True))}
     superfamily_map = {sf: i for i, (sf, _) in enumerate(sorted(dict(df["superfamily"].value_counts()).items(), key=lambda x: x[1], reverse=True))}
@@ -53,7 +53,6 @@ def process_scope_40(save_path: Path, secstr_path: Path) -> None:
     df["ID"] = [f"P{idx:05d}" for idx in range(len(df))]
     df = df.astype({"class_": "int32", "fold": "int32", "superfamily": "int32", "family": "int32"})
     df["split"] = np.random.choice(["train", "val", "test"], size=len(df), p=[0.8, 0.1, 0.1])
-    # df = pd.read_csv(save_path / "scope_40_208.csv")
     secstr_df = pd.read_csv(secstr_path)
     df = df.merge(secstr_df[["scope_id", "secstr_8c", "secstr_3c"]], on="scope_id", how="left")
 
@@ -61,7 +60,7 @@ def process_scope_40(save_path: Path, secstr_path: Path) -> None:
 
 
 if __name__ == "__main__":
-    parser = ArgumentParser()
+    parser = argparse.ArgumentParser()
     parser.add_argument("--save-path", type=Path, required=True, help="Path to save the processed dataset")
     parser.add_argument("--secstr-path", type=Path, required=False, help="Path to DSSP secondary structure file")
     args = parser.parse_args()

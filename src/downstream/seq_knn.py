@@ -1,18 +1,19 @@
-from datetime import datetime
-import random
-from time import time
-
-from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
 import pickle
-from pathlib import Path
-import pandas as pd
-import numpy as np
+import random
 import argparse
+from time import time
+from pathlib import Path
+from datetime import datetime
+
+import numpy as np
+import pandas as pd
+from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
 
 from src.downstream.analyze import prepare_dataset
 
 
 def main(args):
+    """Train a kNN classifier on the sequence distance matrix."""
     print(f"[{datetime.now()}] Starting AA model rolling computation...")
     dataset = args.data_path.stem
 

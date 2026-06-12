@@ -4,16 +4,16 @@ import os
 # os.environ.setdefault("LOGNAME", "s8rojoer")
 
 import re
+import sys
 import pickle
 from pathlib import Path
 from argparse import ArgumentParser
-import sys
 
-from tokenizers import Tokenizer
 import torch
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
+from tokenizers import Tokenizer
 from esm.models.esmc import ESMC
 from esm.tokenization import EsmSequenceTokenizer
 from esm.sdk.api import ESMProtein, LogitsConfig
@@ -117,7 +117,12 @@ def run_esm(
 
 
 def run_esmc(
-    model_name: str, data_path: Path, output_path: Path, aa_level: bool = False, empty: bool = False, force: bool = False
+    model_name: str, 
+    data_path: Path, 
+    output_path: Path, 
+    aa_level: bool = False, 
+    empty: bool = False, 
+    force: bool = False,
 ) -> None:
     """
     Run ESMC model to extract embeddings for sequences in the given data path.
@@ -160,7 +165,12 @@ def run_esmc(
 
 
 def run_ankh(
-    model_name: str, data_path: Path, output_path: Path, aa_level: bool = False, empty: bool = False, force: bool = False
+    model_name: str, 
+    data_path: Path, 
+    output_path: Path,
+    aa_level: bool = False, 
+    empty: bool = False, 
+    force: bool = False,
 ) -> None:
     """
     Run Ankh model to extract embeddings for sequences in the given data path.
@@ -200,7 +210,13 @@ def run_ankh(
         del embeddings
 
 
-def run_prostt5(data_path: Path, output_path: Path, aa_level: bool = False, empty: bool = False, force: bool = False) -> None:
+def run_prostt5(
+    data_path: Path, 
+    output_path: Path, 
+    aa_level: bool = False, 
+    empty: bool = False, 
+    force: bool = False
+) -> None:
     """
     Run ProstT5 model to extract embeddings for sequences in the given data path.
 
@@ -242,7 +258,13 @@ def run_prostt5(data_path: Path, output_path: Path, aa_level: bool = False, empt
         del embeddings
 
 
-def run_prott5(data_path: Path, output_path: Path, aa_level: bool = False, empty: bool = False, force: bool = False) -> None:
+def run_prott5(
+    data_path: Path, 
+    output_path: Path, 
+    aa_level: bool = False, 
+    empty: bool = False, 
+    force: bool = False
+) -> None:
     """
     Run ProtT5 model to extract embeddings for sequences in the given data path.
 
@@ -285,7 +307,12 @@ def run_prott5(data_path: Path, output_path: Path, aa_level: bool = False, empty
 
 
 def run_progen2(
-    model_name: str, data_path: Path, output_path: Path, aa_level: bool = False, empty: bool = False, force: bool = False
+    model_name: str, 
+    data_path: Path,
+    output_path: Path, 
+    aa_level: bool = False, 
+    empty: bool = False, 
+    force: bool = False,
 ) -> None:
     """
     Run ProGen2 model to extract embeddings for sequences in the given data path.
@@ -333,7 +360,12 @@ def run_progen2(
         del outputs
 
 
-def run_protgpt2(data_path: Path, output_path: Path, empty: bool = False, force: bool = False) -> None:
+def run_protgpt2(
+    data_path: Path, 
+    output_path: Path, 
+    empty: bool = False, 
+    force: bool = False
+) -> None:
     """
     Run ProtGPT2 model to extract embeddings for sequences in the given data path.
 
@@ -371,7 +403,13 @@ def run_protgpt2(data_path: Path, output_path: Path, empty: bool = False, force:
         del outputs
 
 
-def run_ohe(data_path: Path, output_path: Path, aa_level: bool = False, empty: bool = False, force: bool = False) -> None:
+def run_ohe(
+    data_path: Path, 
+    output_path: Path, 
+    aa_level: bool = False, 
+    empty: bool = False, 
+    force: bool = False
+) -> None:
     """
     One-hot encode sequences and save them to the output path.
 
@@ -398,46 +436,6 @@ def run_ohe(data_path: Path, output_path: Path, aa_level: bool = False, empty: b
             one_hot[i, AA_OHE.get(aa, 20)] = 1
         with open(out / f"{idx}.pkl", "wb") as f:
             save_embeddings(one_hot, aa_level, f)
-
-
-def run_esm_batched(model_name: str, num_layers: int, data_path: str, output_path: str, batch_size: int = 16) -> None:
-    """Not in use, but kept for reference."""
-    out = Path(output_path)
-    out.mkdir(parents=True, exist_ok=True)
-    for i in range(num_layers + 1):
-        (out / f"layer_{i}").mkdir(parents=True, exist_ok=True)
-
-    df = pd.read_csv(data_path)
-    ids = df["ID"].tolist()
-    sequences = df["sequence"].tolist()
-
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModel.from_pretrained(model_name).to(DEVICE).eval()
-
-    for start in tqdm(range(0, len(sequences), batch_size), desc="Embedding batches"):
-        end = start + batch_size
-        batch_ids = ids[start:end]
-        batch_seqs = sequences[start:end]
-
-        batch_tokens = tokenizer(batch_seqs, return_tensors="pt", padding=True, truncation=True)
-        input_ids = batch_tokens["input_ids"].to(DEVICE)
-        attention_mask = batch_tokens["attention_mask"].to(DEVICE)
-
-        with torch.no_grad():
-            outputs = model(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                output_hidden_states=True,
-                output_attentions=False,
-            )
-
-        hidden_states = outputs.hidden_states  # tuple of (num_layers + 1) tensors
-
-        for b_idx, sample_id in enumerate(batch_ids):
-            trimmed = [layer[b_idx, 1:-1].cpu().numpy() for layer in hidden_states]
-            for i, layer in enumerate(trimmed):
-                with open(out / f"layer_{i}" / f"{sample_id}.pkl", "wb") as f:
-                    pickle.dump(layer, f)
 
 
 if __name__ == "__main__":

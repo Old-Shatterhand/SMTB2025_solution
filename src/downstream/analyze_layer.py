@@ -11,11 +11,11 @@ from typing import Literal
 from datetime import datetime
 
 import cuml
-from sklearn.multioutput import MultiOutputClassifier
 import torch
 import numpy as np
 import pandas as pd
 from cuml import PCA
+from sklearn.multioutput import MultiOutputClassifier
 from cuml.neighbors import KNeighborsClassifier as kNN_class, KNeighborsRegressor as kNN_reg
 
 from src.downstream.utils import compute_id_2NN, return_data_overlap

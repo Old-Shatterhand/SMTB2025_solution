@@ -8,7 +8,7 @@ from Bio.PDB import PDBParser
 from Bio.PDB.DSSP import DSSP
 
 
-def run_dssp(scope_path: Path, scope_pdb_path: Path):
+def run_dssp(scope_path: Path, scope_pdb_path: Path) -> None:
     """
     Run DSSP on the SCOPe dataset to extract secondary structure information. 
     The function copies ENT files from the SCOPe dataset to PDB files, runs DSSP on each PDB file, and saves the results in a CSV file.

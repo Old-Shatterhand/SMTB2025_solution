@@ -1,18 +1,18 @@
+import time
 import pickle
 import argparse
-import time
+from pathlib import Path
 
 import torch
 import pandas as pd
 import torch.nn as nn
 import lightning as L
 from transformers import AutoTokenizer
-from pathlib import Path
 
 from src.viz.constants import LAYERS, PLM_MODELS
 
 
-def collate(batch):
+def collate(batch) -> tuple[torch.Tensor, torch.Tensor]:
     xs = [item[0] for item in batch]
     ys = [item[1] for item in batch]
     stacked_x = torch.cat(xs, dim=0)
@@ -32,11 +32,11 @@ class ESMDataset(torch.utils.data.Dataset):
         self.embedding_path = Path(path)
         self.tokenizer = AutoTokenizer.from_pretrained(PLM_MODELS[model])
 
-    def __len__(self):
+    def __len__(self) -> int:
         """Returns the number of samples in the dataset."""
         return len(self.data)
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx) -> tuple[torch.Tensor, torch.Tensor]:
         """Returns the ESM embedding and the corresponding labels for a given index."""
         row = self.data.iloc[idx]
         y = self.tokenizer(row["labels"]).input_ids[1:-1]
@@ -63,13 +63,13 @@ class ESMDataModule(L.LightningDataModule):
         self.batch_size = batch_size
         self.num_workers = num_workers
 
-    def setup(self, stage=None):
+    def setup(self, stage=None) -> None:
         """Sets up the datasets for training, validation, and testing."""
         self.train_ds = ESMDataset(self.embed_path, self.df[self.df["split"] == "train"], self.model)
         self.val_ds = ESMDataset(self.embed_path, self.df[self.df["split"] == "val"], self.model)
         self.test_ds = ESMDataset(self.embed_path, self.df[self.df["split"] == "test"], self.model)
 
-    def _get_dataloader(self, dataset: ESMDataset, shuffle: bool = True):
+    def _get_dataloader(self, dataset: ESMDataset, shuffle: bool = True) -> torch.utils.data.DataLoader:
         """
         Returns a DataLoader for the given dataset.
         
@@ -85,15 +85,15 @@ class ESMDataModule(L.LightningDataModule):
             num_workers=self.num_workers,
         )
 
-    def train_dataloader(self):
+    def train_dataloader(self) -> torch.utils.data.DataLoader:
         """Returns the DataLoader for the training dataset."""
         return self._get_dataloader(self.train_ds, shuffle=True)
 
-    def val_dataloader(self):
+    def val_dataloader(self) -> torch.utils.data.DataLoader:
         """Returns the DataLoader for the validation dataset."""
         return self._get_dataloader(self.val_ds, shuffle=False)
 
-    def test_dataloader(self):
+    def test_dataloader(self) -> torch.utils.data.DataLoader:
         """Returns the DataLoader for the test dataset."""
         return self._get_dataloader(self.test_ds, shuffle=False)
 
@@ -105,7 +105,7 @@ class ESMModel(L.LightningModule):
         self.layer1 = nn.LazyLinear(256)
         self.layer2 = nn.Linear(256, 33)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Defines the forward pass of the model.
         
@@ -120,7 +120,7 @@ class ESMModel(L.LightningModule):
         x = self.layer2(x)
         return x
 
-    def shared_step(self, batch, step: str):
+    def shared_step(self, batch, step: str) -> torch.Tensor:
         """
         Shared step for training, validation, and testing.
         
@@ -137,19 +137,19 @@ class ESMModel(L.LightningModule):
         self.log(f"{step}/loss", loss, prog_bar=True)
         return loss
 
-    def training_step(self, batch, batch_idx):
+    def training_step(self, batch, batch_idx) -> torch.Tensor:
         """Defines the training step."""
         return self.shared_step(batch, "train")
 
-    def validation_step(self, batch, batch_idx):
+    def validation_step(self, batch, batch_idx) -> torch.Tensor:
         """Defines the validation step."""
         return self.shared_step(batch, "val")
 
-    def test_step(self, batch, batch_idx):
+    def test_step(self, batch, batch_idx) -> torch.Tensor:
         """Defines the test step."""
         return self.shared_step(batch, "test")
 
-    def configure_optimizers(self):
+    def configure_optimizers(self) -> dict:
         """Configures the optimizer and learning rate scheduler for training."""
         optimizer = torch.optim.AdamW(self.parameters(), lr=1e-3, weight_decay=1e-5)
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="min", factor=0.5, patience=5)

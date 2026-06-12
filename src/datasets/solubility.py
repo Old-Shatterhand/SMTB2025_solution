@@ -1,4 +1,4 @@
-from argparse import ArgumentParser
+import argparse
 from pathlib import Path
 
 import pandas as pd
@@ -29,7 +29,7 @@ def process_solubility(save_path: Path) -> None:
 
 
 if __name__ == "__main__":
-    parser = ArgumentParser()
+    parser = argparse.ArgumentParser()
     parser.add_argument("--save-path", type=Path, required=True)
     args = parser.parse_args()
 

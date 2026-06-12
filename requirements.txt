@@ -1,5 +1,5 @@
 --extra-index-url https://pypi.nvidia.com
-cuml-cu12
+cuml-cu12<26
 torch<2.9
 numpy<2.2
 pandas<2.5
@@ -11,3 +11,5 @@ tqdm
 esm 
 sentencepiece
 torchmetrics
+tqdm
+biopython

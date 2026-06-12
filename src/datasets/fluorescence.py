@@ -1,9 +1,7 @@
-from argparse import ArgumentParser
 from pathlib import Path
+import argparse
 
-import numpy as np
 import pandas as pd
-from sklearn.mixture import GaussianMixture
 
 
 def process_fluorescence(save_path: Path) -> None:
@@ -28,23 +26,6 @@ def process_fluorescence(save_path: Path) -> None:
     save_path.mkdir(parents=True, exist_ok=True)
     df[["ID", "sequence", "label", "split"]].to_csv(save_path / "fluorescence.csv", index=False)
     print(f"Fluorescence dataset saved to {save_path}/fluorescence.csv")
-
-
-def get_std_boundaries(gmm, n_std: int = 2):
-    """Get the n-std boundaries for each component"""
-    boundaries = []
-    
-    for i in range(gmm.n_components):
-        mean = gmm.means_[i, 0]  # Extract scalar mean
-        variance = gmm.covariances_[i, 0, 0]  # Extract scalar variance
-        std = np.sqrt(variance)
-        
-        lower_bound = mean - n_std * std
-        upper_bound = mean + n_std * std
-        
-        boundaries.append((lower_bound, upper_bound))
-    
-    return boundaries
 
 
 def to_classification(save_path: Path) -> None:
@@ -78,7 +59,7 @@ def to_classification(save_path: Path) -> None:
 
 
 if __name__ == "__main__":
-    parser = ArgumentParser()
+    parser = argparse.ArgumentParser()
     parser.add_argument("--save-path", type=Path, required=True, help="Path to save the processed dataset")
     parser.add_argument("--class", action="store_true", dest="class_", help="Convert to classification dataset")
     args = parser.parse_args()

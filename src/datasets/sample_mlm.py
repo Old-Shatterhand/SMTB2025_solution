@@ -1,8 +1,8 @@
 import argparse
 from pathlib import Path
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 
 
 def sample_dataset(
@@ -65,10 +65,10 @@ if __name__ == "__main__":
     parser.add_argument("output_file", type=str, help="Path to the output CSV file.")
     parser.add_argument("--sequence_column", type=str, default="sequence", help="Column containing sequences.")
     parser.add_argument("--mask_token", type=str, default="<mask>", help="Token to use for masking.")
-    parser.add_argument("--n_samples", type=int, default=1000, help="Number of samples to generate.")
+    parser.add_argument("--n-samples", type=int, default=1000, help="Number of samples to generate.")
     parser.add_argument("--mask_prob", type=float, default=0.15, help="Probability of masking a token.")
-    parser.add_argument("--train_size", type=float, default=0.8, help="Proportion of training data.")
-    parser.add_argument("--val_size", type=float, default=0.1, help="Proportion of validation data.")
+    parser.add_argument("--train-size", type=float, default=0.8, help="Proportion of training data.")
+    parser.add_argument("--val-size", type=float, default=0.1, help="Proportion of validation data.")
     args = parser.parse_args()
     dataset = pd.read_csv(args.input_file)
     sample_df = sample_dataset(

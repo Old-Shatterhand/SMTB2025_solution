@@ -14,16 +14,23 @@ import pandas as pd
 from torch import nn
 from torch.utils.data import Dataset, DataLoader
 
-from src.downstream.analyze import build_wp_dataloader, prepare_dataset
 from src.viz.utils_general import compute_metric
+from src.downstream.analyze import build_wp_dataloader, prepare_dataset
 
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 EARLY_STOPPING_PATIENCE = 75
 LR_SCHEDULER_PATIENCE = 20
 
-class GlobalProbe(nn.Module):
-    def __init__(self, input_dim: int, num_outputs: int, num_layers: int, task: Literal["regression", "binary", "multi-class", "multi-label"]):
+
+class ModelProbe(nn.Module):
+    def __init__(
+            self,
+            input_dim: int,
+            num_outputs: int,
+            num_layers: int,
+            task: Literal["regression", "binary", "multi-class", "multi-label"]
+        ) -> None:
         """
         A global probe that learns to weight the contributions of different layers' representations.
         
@@ -59,8 +66,20 @@ class GlobalProbe(nn.Module):
         return x
 
 
-class CuPyGlobalProbe:
+class RegressionModelProbe:
     def __init__(self, num_layers: int, num_feats: int):
+        """
+        A global probe for regression tasks that learns to weight the contributions of different layers' 
+        representations. This needs to be different from the ModelProbe since the approach in the general probe does 
+        not work for regression settings. And we also cannot use this approach for everything, because Logistic 
+        Regression does not have a closed-form solution for the weights, and we would need to use an iterative 
+        optimization approach which is much slower. So we use this regression-specific probe with CuPy acceleration 
+        only for regression tasks, and the general probe for classification tasks.
+
+        Args:
+            num_layers (int): The number of layers to consider for probing.
+            num_feats (int): The number of features in the representations from each layer.
+        """
         # The models follows y_hat = mixings @ X @ weights
         self.num_layers = num_layers
         self.num_feats = num_feats
@@ -68,7 +87,36 @@ class CuPyGlobalProbe:
         self.mixings = cupy.array(np.random.normal(size=num_layers))
         self.weights = cupy.array(np.random.normal(size=num_feats + 1))
     
-    def fit(self, X_tr: cupy.ndarray, y_tr: cupy.ndarray, X_val: cupy.ndarray, y_val: cupy.ndarray, epochs=50, early_stopping_patience=5, epsilon=1e-5):
+    def fit(
+            self,
+            X_tr: cupy.ndarray,
+            y_tr: cupy.ndarray,
+            X_val: cupy.ndarray,
+            y_val: cupy.ndarray,
+            epochs: int = 50,
+            early_stopping_patience: int = 5,
+            epsilon: float = 1e-5,
+        ) -> tuple[list[float], "RegressionModelProbe"]:
+        """
+        Trains the regression probe using an alternating optimization approach to learn the mixings and weights.
+        
+        Args:
+            X_tr (cupy.ndarray): A tensor of shape (L, S, F) containing the representations from different layers 
+                for the training samples, where L is the number of layers, S is the number of training samples, 
+                and F is the number of features in the representations from each layer.
+            y_tr (cupy.ndarray): A tensor of shape (S,) containing the target values for the training samples.
+            X_val (cupy.ndarray): A tensor of shape (L, S, F) containing the representations from different layers 
+                for the validation samples, where L is the number of layers, S is the number of validation samples, 
+                and F is the number of features in the representations from each layer.
+            y_val (cupy.ndarray): A tensor of shape (S,) containing the target values for the validation samples.
+            epochs (int): The maximum number of epochs to train the probe for.
+            early_stopping_patience (int): The number of epochs to wait for improvement in validation loss before 
+                stopping training early.
+            epsilon (float): A small constant added to the mixings to ensure numerical stability during optimization.
+        Returns:
+            tuple[list[float], RegressionModelProbe]: A tuple containing the list of validation losses for each epoch 
+                and the trained RegressionModelProbe instance.
+        """
         assert X_tr.shape[0] == self.num_layers and X_tr.shape[2] == self.num_feats, f"Expected X_tr to have shape (L, S, F), ({self.num_layers}, S, {self.num_feats}), got {X_tr.shape} instead."
         assert X_val.shape[0] == self.num_layers and X_val.shape[2] == self.num_feats, f"Expected X_val to have shape (L, S, F), ({self.num_layers}, S, {self.num_feats}), got {X_val.shape} instead."
         biased_X = cupy.concatenate([cupy.ones((X_tr.shape[0], X_tr.shape[1], 1)), X_tr], axis=2)
@@ -87,7 +135,6 @@ class CuPyGlobalProbe:
             losses.append(cupy.mean((y_val - self.predict(X_val)) ** 2))
             print(f"Epoch {epoch + 1}/{epochs}, Loss: {losses[-1]:.4f}")
 
-            # Check for convergence (this is a placeholder, you should implement a proper convergence check based on the change in loss or parameters)
             if epoch < 2 or losses[-1] < losses[-2]:
                 best_mixings, best_weights = copy.deepcopy(self.mixings.get()), copy.deepcopy(self.weights.get())
                 epochs_without_improvement = 0
@@ -100,7 +147,18 @@ class CuPyGlobalProbe:
         self.weights = cupy.array(best_weights)
         return losses, self
     
-    def predict(self, X: cupy.ndarray):
+    def predict(self, X: cupy.ndarray) -> cupy.ndarray:
+        """
+        Predicts the output for the given input representations using the learned mixings and weights.
+        
+        Args:
+            X (cupy.ndarray): A tensor of shape (L, S, F) containing the representations from different layers for a 
+                batch of samples, where L is the number of layers, S is the batch size, and F is the number of 
+                features in the representations from each layer.
+        Returns:
+            cupy.ndarray: The predicted output for the input representations, calculated as the weighted combination 
+                of the layer representations using the learned mixings and weights.
+        """
         assert X.shape[0] == self.num_layers and X.shape[2] == self.num_feats, f"Expected X to have shape (L, S, F), ({self.num_layers}, S, {self.num_feats}), got {X.shape} instead."
         biased_X = cupy.concatenate([cupy.ones((X.shape[0], X.shape[1], 1)), X], axis=2)
         return cupy.tensordot(cupyx.scipy.special.softmax(self.mixings), biased_X, axes=1) @ self.weights # type: ignore
@@ -122,7 +180,16 @@ class CuPyGlobalProbe:
 
 
 class GlobalDataset(Dataset):
-    def __init__(self, df: pd.DataFrame, split: str, embed_dir: Path, max_layers: int, label: str, device: torch.device, task: Literal["regression", "binary", "multi-class", "multi-label"] = "binary") -> None:
+    def __init__(
+            self,
+            df: pd.DataFrame,
+            split: str,
+            embed_dir: Path,
+            max_layers: int,
+            label: str,
+            device: torch.device,
+            task: Literal["regression", "binary", "multi-class", "multi-label"] = "binary"
+        ) -> None:
         """
         Initializes the dataset by loading the representations for the specified split and preparing the labels.
         
@@ -137,22 +204,39 @@ class GlobalDataset(Dataset):
         """
         self.device = device
         self._layer_limit = max_layers + 1
-        self._current_limit = self._layer_limit  # The limit up to which layers are currently being used (can be adjusted during training to avoid multiple loads of the data)
-        self.data, self.labels = self._load(df[df["split"] == split], embed_dir, label, return_type="cp" if task == "regression" else "pt")
+        
+        # The limit up to which layers are currently being used (can be adjusted during training to avoid multiple loads of the data)
+        self._current_limit = self._layer_limit
+        self.data, self.labels = self._load(
+            df[df["split"] == split],
+            embed_dir,
+            label,
+            return_type="cp" if task == "regression" else "pt"
+        )
     
-    def _load(self, df: pd.DataFrame, embed_dir: Path, label: str, return_type: Literal["pt", "cp"] = "pt") -> tuple[list[torch.Tensor], torch.Tensor]:
+    def _load(
+            self,
+            df: pd.DataFrame,
+            embed_dir: Path,
+            label: str,
+            return_type: Literal["pt", "cp"] = "pt"
+        ) -> tuple[list[torch.Tensor | cupy.array], torch.Tensor | cupy.array]:
         """Loads the representations for the specified split and prepares the labels.
         
         Args:
             df (pd.DataFrame): The DataFrame containing the dataset information for the specified split.
             embed_dir (Path): The directory where the layer representations are stored.
             label (str): The name of the column in the DataFrame that contains the labels.
+        
+        Returns:
+            tuple[list[torch.Tensor | cupy.array], torch.Tensor | cupy.array]: A tuple containing a list 
+                of tensors (or arrays) for the layer representations and a tensor (or array) for the labels.
         """
         train_X, labels = build_wp_dataloader(df, embed_dir / "layer_0", label)
         data = np.array([train_X] + [build_wp_dataloader(df, embed_dir / f"layer_{i}", label)[0] for i in range(1, self._layer_limit)])
         if return_type == "pt":
-            # return [torch.tensor(d, dtype=torch.float32).to(self.device) for d in data], torch.tensor(labels, dtype=torch.float32 if labels.dtype == np.float32 else torch.long).to(self.device)
-            return torch.tensor(data, dtype=torch.float32).to(self.device), torch.tensor(labels, dtype=torch.float32 if labels.dtype == np.float32 else torch.long).to(self.device)
+            return torch.tensor(data, dtype=torch.float32).to(self.device), \
+                torch.tensor(labels, dtype=torch.float32 if labels.dtype == np.float32 else torch.long).to(self.device)
         elif return_type == "cp":
             return cupy.array(data), cupy.array(labels)
         else:
@@ -216,7 +300,8 @@ def validation_loop(
         model (torch.nn.Module): The model being evaluated.
         dataloader (torch.utils.data.DataLoader): The DataLoader for the validation dataset.
         loss_fn (torch.nn.Module): The loss function to calculate the validation loss.
-        task (Literal["binary", "multi-class", "multi-label"]): The type of prediction task being performed, which determines the loss function used during validation.
+        task (Literal["binary", "multi-class", "multi-label"]): The type of prediction task being performed, 
+            which determines the loss function used during validation.
 
     Returns:
         float: The average validation loss across all batches.
@@ -325,7 +410,15 @@ def routine(
         embed_dir (Path): The directory where the layer representations are stored and where results will be saved.
         num_layers (int): The number of layers to consider for probing.
         num_outputs (int): The number of output classes for classification tasks or 1 for regression.
-        task (Literal["regression", "binary", "multi-class", "multi-label"]): The type of prediction task being performed, which determines the loss function used during training.
+        task (Literal["regression", "binary", "multi-class", "multi-label"]): The type of prediction task being 
+            performed, which determines the loss function used during training.
+        level (str | None): The level of the SCOPe hierarchy to consider for fold/superfamily prediction tasks. 
+            Should be one of "superfamily", "fold", or None if not applicable.
+        top (int | None): The number of top labels to consider for fold/superfamily prediction tasks. Mutually 
+            exclusive with min_.
+        min_ (int | None): The minimum number of samples for a label to be included in fold/superfamily prediction 
+            tasks. Mutually exclusive with top_.
+        debug (bool): Whether to run in debug mode with a smaller subset of the data and fewer epochs for faster iteration.
     """
     dataset_name = data_path.stem
     df, label, val_name, _, _ = prepare_dataset(dataset_name, data_path, None, level, top, min_, max_rows=1000 if debug else None)
@@ -357,7 +450,7 @@ def routine(
         valid_dataset.set_layer_limit(curr_max_layer)
 
         if task == "regression":
-            model = CuPyGlobalProbe(curr_max_layer, train_dataset.embed_dim())
+            model = RegressionModelProbe(curr_max_layer, train_dataset.embed_dim())
             epoch_losses, model = model.fit(*train_dataset.get(), *valid_dataset.get(), epochs=10 if debug else 50, early_stopping_patience=1 if debug else 5)
             weights.append(model.mixings.get())
             losses.append(epoch_losses)
@@ -367,7 +460,7 @@ def routine(
             train_dataloader = DataLoader(train_dataset, batch_size=32, shuffle=True)
             valid_dataloader = DataLoader(valid_dataset, batch_size=32, shuffle=False)
 
-            model = GlobalProbe(train_dataset.embed_dim(), num_outputs, curr_max_layer, task).to(DEVICE)
+            model = ModelProbe(train_dataset.embed_dim(), num_outputs, curr_max_layer, task).to(DEVICE)
             optimizer = torch.optim.AdamW([
                 {'params': [model.weights], 'lr': 0.001},
                 {'params': model.linear.parameters(), 'lr': 0.0001}
