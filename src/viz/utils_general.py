@@ -7,7 +7,8 @@ import scipy
 import numpy as np
 import pandas as pd
 from scipy.stats import spearmanr
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score, matthews_corrcoef, roc_auc_score
+from sklearn.metrics import accuracy_score, mean_absolute_error, mean_squared_error, r2_score, matthews_corrcoef, roc_auc_score
+import torch
 
 from src.viz.constants import MODEL_COLORS, MODEL_MARKERS, MODEL_NAMES, MODELS, SPLIT_ID, LAYERS, DATASET2TASK
 from src.downstream.utils import multioutput_mcc, multiclass_mcc
@@ -17,6 +18,18 @@ FINETUNE_LAYERS = [0, 10, 15, 20, 22, 24, 26, 28, 30]
 
 
 def compute_metric(y_hat: np.ndarray, y: np.ndarray, metric: str, task: Literal["regression", "binary", "multi-label", "multi-class"]) -> float:
+    """
+    Compute a performance metric between predictions and true labels.
+
+    Args:
+        y_hat: Predicted values.
+        y: True values.
+        metric: Performance metric to compute (e.g., "pearson", "mcc").
+        task: Type of task ("regression", "binary", "multi-label", "multi-class").
+    
+    Returns:
+        The computed performance metric.
+    """
     match metric.lower():
         case "pearson":
             return np.corrcoef(y_hat, y)[0, 1]
@@ -30,6 +43,15 @@ def compute_metric(y_hat: np.ndarray, y: np.ndarray, metric: str, task: Literal[
             return mean_absolute_error(y, y_hat)
         case "rmse":
             return np.sqrt(mean_squared_error(y, y_hat))
+        case "acc":
+            if task == "multi-label":
+                return accuracy_score(y, y_hat > 0.5)
+            return accuracy_score(y, y_hat)
+        case "mlm":
+            # return torch.nn.CrossEntropyLoss(label_smoothing=0.1)(logits.view(-1, logits.size(-1)), y.view(-1))
+            if y_hat.ndim == 3:
+                y_hat = y_hat[0]
+            return torch.nn.CrossEntropyLoss(label_smoothing=0.1)(torch.tensor(y_hat), torch.tensor(y)).item()
         case "mcc":
             if task == "multi-label":
                 if y_hat.ndim == 3:
@@ -64,12 +86,12 @@ def compute_performance(
         model: str | None = None, 
         dataset: str | None = None, 
         layer: int | None = None, 
+        filepath: Path | None = None, 
         algo: str | None = None, 
         metric: str | None = None, 
-        filepath: Path | None = None, 
+        task: Literal["regression", "binary", "multi-label", "multi-class"] = "regression",
         aa: bool = False, 
         n_classes: int = 42,
-        task: Literal["regression", "binary", "multi-label", "multi-class"] = "regression"
     ) -> float:
     """
     Compute a performance metric for the given model, dataset, layer, and algorithm.
@@ -99,7 +121,7 @@ def compute_performance(
             filepath = root / embed_dir / model / dataset / f"layer_{layer}" / filename
         
         if not filepath.exists():
-            return 0
+            return np.nan
         
         with open(filepath, "rb") as f:
             y_hat, y = pd.read_pickle(f)[SPLIT_ID]
@@ -109,7 +131,7 @@ def compute_performance(
         return compute_metric(y_hat, y, metric, task)
     except Exception as e:
         print(f"Error computing performance for {model} layer {layer} on {dataset} with {algo}: {e}")
-        return 0
+        return np.nan
 
 
 def plot_performance(
@@ -118,15 +140,15 @@ def plot_performance(
         dataset: str, 
         algo: str, 
         metric: str, 
-        relative: bool = False, 
-        model_prefix: Literal["", "empty_"] = "", 
-        legend: bool = False, 
-        colored: bool | str = True, 
-        title: str | bool | None = None, 
+        task: Literal["regression", "binary", "multi-label", "multi-class"] = "regression",
         aa: bool = False, 
         n_classes: int = 42,
-        task: Literal["regression", "binary", "multi-label", "multi-class"] = "regression",
-        models: list[str] = MODELS
+        model_prefix: Literal["", "empty_"] = "", 
+        relative: bool = False, 
+        legend: bool = False, 
+        models: list[str] = MODELS,
+        colored: bool | str = True, 
+        title: str | bool | None = None, 
     ) -> None:
     """
     Plot performance metrics for different models on a given axis.
@@ -140,11 +162,15 @@ def plot_performance(
         relative: Whether to plot relative layer positions.
         model_prefix: Prefix to add to model names. Either "" or "empty_" to indicate using normal or untrained models.
         legend: Whether to display the legend.
+        aa: Whether to use amino acid level embeddings.
+        n_classes: Number of classes for classification tasks. Only used for aa-tasks.
+        task: Type of task ("regression", "binary", "multi-label", "multi-class").
+        models: List of model names to include in the plot.
         colored: Color setting for the plot lines.
         title: Optional title for the plot. Can be a string, boolean, or None.
     """
     for model in models:
-        perfs = [compute_performance(root, model_prefix + model, dataset, layer, algo, metric, aa=aa, n_classes=n_classes, task=task) for layer in range(LAYERS[model] + 1)]
+        perfs = [compute_performance(root, model_prefix + model, dataset, layer, algo=algo, metric=metric, aa=aa, n_classes=n_classes, task=task) for layer in range(LAYERS[model] + 1)]
         if sum([abs(p) for p in perfs]) == 0:  # drop performances that are 0 throughout
             continue
         ax.plot(
@@ -159,49 +185,8 @@ def plot_performance(
     ax.set_ylabel(metric.upper())
     if not isinstance(title, bool) or title:
         ax.set_title(title or f"{metric.upper()} of {algo.upper()} heads")
-    # if dataset == "meltome_atlas":
-    #     ax.set_ylim(bottom=3.95, top=8.55)
-    # else:
-    #     ax.set_ylim(bottom=-0.05, top=1.05)
     if legend:
         ax.legend()
-
-def comp_finetune_performance(base, dataset, metric):
-    perfs = []
-    for layer in FINETUNE_LAYERS:
-        with open(base / "semifrozen_esm" / dataset / f"esm_t30" / f"unfreeze_{layer}" / "lr_1e-4" / f"predictions_unfrozen_esm_t30_{layer}_end_0.0001.pkl", "rb") as f:
-            y_hat, y = pickle.load(f)[1]
-        y = np.array(y).squeeze()
-        y_hat = np.array(y_hat).squeeze()
-        if DATASET2TASK[dataset] == "multi-label":
-            y_hat = scipy.special.expit(y_hat)
-        perfs.append(compute_metric(y_hat, y, metric, DATASET2TASK[dataset]))
-    return perfs
-
-
-def plot_dataset_finetune_comparison(ax, root, dataset, metric, n_classes, task):
-    layer_perfs = [compute_performance(root, "esm_t30", dataset, layer, "lr", metric, aa=False, n_classes=n_classes, task=task) for layer in range(LAYERS["esm_t30"] + 1)]
-    ax.plot(
-        np.arange(len(layer_perfs)),
-        layer_perfs, 
-        label="layer-trained", 
-        c=MODEL_COLORS.get("esm_t30", None),
-        marker=MODEL_MARKERS.get("esm_t30", None),
-    )
-
-    ft_perfs = comp_finetune_performance(root, dataset, metric)
-    ax.plot(
-        FINETUNE_LAYERS,
-        ft_perfs, 
-        label="finetuned", 
-        c="orange",
-        marker=MODEL_MARKERS.get("esm_t30", None),
-        linestyle="--",
-    )
-    ax.set_ylim(bottom=-0.05, top=1.05)
-    ax.set_title(f"{dataset.capitalize()}")
-    ax.set_xlabel("Layer")
-    ax.set_ylabel(metric.upper())
 
 
 def read_metric(
@@ -209,8 +194,8 @@ def read_metric(
         model: str | None, 
         dataset: str | None, 
         layer: int | None, 
-        metric: Literal["ids", "density", "noverlap", "noverlap_50"], 
         filepath: Path | None = None, 
+        metric: Literal["ids", "density", "noverlap", "noverlap_50"] | None = None, 
         aa: bool = False
     ) -> float:
     """
@@ -304,11 +289,14 @@ def plot_metric(
         root: Path | None, 
         dataset: str | None, 
         relative: bool, 
-        legend: bool = False, 
         metric: Literal["ids", "density", "noverlap", "noverlap_50", "zero", "pc@95", "var@10", "5dvol"] = "ids", 
         model_prefix: Literal["", "empty_"] = "", 
+        legend: bool = False, 
         aa: bool = False, 
-        n_classes: int = 42
+        n_classes: int = 42,
+        models: list[str] = MODELS,
+        colored: bool | str = True,
+        title: str | bool | None = None,
     ) -> None:
     """
     Plot a specific metric for different models on a given axis.
@@ -318,14 +306,17 @@ def plot_metric(
         root: Root directory containing the embeddings and results.
         dataset: Name of the dataset.
         relative: Whether to plot relative layer positions.
-        legend: Whether to display the legend.
         metric: Metric to plot ("ids", "density", "noverlap", "noverlap_50", "zero", "pc@95", "var@10", "5dvol").
         model_prefix: Prefix to add to model names. Either "" or "empty_" to indicate using normal or untrained models.
+        legend: Whether to display the legend.
         aa: Whether to use amino acid level embeddings.
         n_classes: Number of classes for classification tasks. Only used for aa-tasks.
+        models: List of model names to include in the plot.
+        colored: Color setting for the plot lines.
+        title: Optional title for the plot. Can be a string, boolean, or None.
     """
     title_map = {"ids": "Intrinsic Dimensions", "density": "Density", "noverlap": "Neighbor Overlap", "noverlap_50": "Neighbor Overlap (50)"}
-    for model in MODELS:
+    for model in models:
         # if metric == "5dvol" and model.startswith("ankh"):
         #     continue  # ankh is crazy in this metric
         perfs = []
@@ -333,24 +324,36 @@ def plot_metric(
             if metric.startswith("noverlap") and layer == LAYERS[model]:
                 continue
             if metric in {"zero", "pc@95", "var@10", "5dvol"}:
-                result = read_pca_metric(root, model_prefix + model, dataset, layer, metric, aa=aa)
+                result = read_pca_metric(root, model_prefix + model, dataset, layer, metric=metric, aa=aa)
             else:
-                result = read_metric(root, model_prefix + model, dataset, layer, metric, aa=aa)
+                result = read_metric(root, model_prefix + model, dataset, layer, metric=metric, aa=aa)
             perfs.append(result)
         if sum([abs(p) for p in perfs]) == 0:  # drop performances that are 0 throughout
             continue
         if relative:
-            x_ticks = np.arange(0, 1 + 1e-5, 1 / (LAYERS[model]))
+            x_ticks = np.arange(0, 1 + 1e-5, 1 / LAYERS[model])
             if metric.startswith("noverlap"):
                 x_ticks = x_ticks[:-1]
                 x_ticks += 1 / (2 * LAYERS[model])
-            ax.plot(x_ticks, perfs, label=model_prefix + model, c=MODEL_COLORS.get(model, None), marker=MODEL_MARKERS.get(model, None))
+            ax.plot(
+                x_ticks, 
+                perfs, 
+                label=model_prefix + MODEL_NAMES.get(model, model), 
+                c=MODEL_COLORS.get(model, None) if colored == True else colored, 
+                marker=MODEL_MARKERS.get(model, None)
+            )
         else:
-            ax.plot(perfs, label=model_prefix + model, c=MODEL_COLORS.get(model, None), marker=MODEL_MARKERS.get(model, None))
+            ax.plot(
+                perfs, 
+                label=model_prefix + MODEL_NAMES.get(model, model), 
+                c=MODEL_COLORS.get(model, None) if colored == True else colored, 
+                marker=MODEL_MARKERS.get(model, None)
+            )
 
     ax.set_xlabel(("Relative" if relative else "Absolute") + " Layer")
     ax.set_ylabel(title_map.get(metric, metric))
-    ax.set_title(f"{title_map.get(metric, metric)}")
+    if not isinstance(title, bool) or title:
+        ax.set_title(title or f"{title_map.get(metric, metric)}")
     if metric not in {"ids", "density", "5dvol"}:
         ax.set_ylim(bottom=-0.05, top=1.05)
     if metric == "5dvol":
@@ -379,3 +382,76 @@ def set_subplot_label(ax: plt.Axes, fig: plt.Figure, label: str) -> None:
         va="bottom",
         fontfamily="serif",
     )
+
+
+
+def comp_finetune_performance(base, dataset, metric):
+    perfs = []
+    for layer in FINETUNE_LAYERS:
+        with open(base / "semifrozen_esm" / dataset / f"esm_t30" / f"unfreeze_{layer}" / "lr_1e-4" / f"predictions_unfrozen_esm_t30_{layer}_end_0.0001.pkl", "rb") as f:
+            y_hat, y = pickle.load(f)[1]
+        y = np.array(y).squeeze()
+        y_hat = np.array(y_hat).squeeze()
+        if DATASET2TASK[dataset] == "multi-label":
+            y_hat = scipy.special.expit(y_hat)
+        perfs.append(compute_metric(y_hat, y, metric, DATASET2TASK[dataset]))
+    return perfs
+
+
+def plot_dataset_finetune_comparison(ax, root, dataset, metric, n_classes, task):
+    try:
+        layer_perfs = [compute_performance(root, "esm_t30", dataset, layer, algo="knn", metric=metric, aa=False, n_classes=n_classes, task=task) for layer in range(LAYERS["esm_t30"] + 1)]
+        ax.plot(
+            np.arange(len(layer_perfs)),
+            layer_perfs, 
+            label="layer-trained", 
+            c=MODEL_COLORS.get("esm_t30", None),
+            marker=MODEL_MARKERS.get("esm_t30", None),
+        )
+
+        ft_perfs = comp_finetune_performance(root, dataset, metric)
+        ax.plot(
+            FINETUNE_LAYERS,
+            ft_perfs, 
+            label="finetuned", 
+            c="orange",
+            marker=MODEL_MARKERS.get("esm_t30", None),
+        )
+    except:
+        pass
+    full, lora = fetch_rost(dataset, "esm_t30")
+    ax.plot([0, 30], [lora, lora], label="LoRA", c="salmon", linestyle="--")
+    ax.plot([0, 30], [full, full], label="Full", c="darkred", linestyle="--")
+    ax.set_xlabel("Layer")
+    ax.set_ylabel({"spearman": "Spearman's ρ", "acc": "Accuracy"}.get(metric, metric))
+
+
+def fetch_rost(dataset, model):
+    data_to_rost = {
+        "fluorescence": "GFP",
+        "stability": "Stability",
+        "deeploc2": "Subcellular",
+        "meltome_atlas": "Meltome",
+    }
+    model_to_rost = {
+        "esm_t6": "ESM2 8M",
+        "esm_t12": "ESM2 35M",
+        "esm_t30": "ESM2 150M",
+        "esm_t33": "ESM2 650M",
+        "esm_t36": "ESM2 3B",
+        "ankh_base": "Ankh base",
+        "ankh_large": "Ankh large",
+        "prott5": "ProtT5",
+    }
+    assert dataset in data_to_rost, f"Dataset {dataset} not found in ROST table mapping."
+    assert model in model_to_rost, f"Model {model} not found in ROST table mapping."
+
+    pt = Path("/") / "scratch" / "SCRATCH_SAS" / "roman" / "SMTB" / "rost_results" / "Table_S1_Individual_training runs_pre_trained_embeddings.csv"
+    ft = pt.parent / "Table_S2_Individual_training_runs_fine_tuning.csv"
+    df_pt = pd.read_csv(pt, sep=";")
+    df_ft = pd.read_csv(ft, sep=";")
+
+    pt_val = np.mean([float(x[:-1].replace(",", ".")) for x in df_pt[df_pt["Model"] == model_to_rost[model]][data_to_rost[dataset]].values[:3]])
+    lora_val = np.mean([float(x[:-1].replace(",", ".")) for x in df_ft[df_ft["Model"] == model_to_rost[model]][data_to_rost[dataset]].values[:3]])
+
+    return pt_val / 100, lora_val / 100

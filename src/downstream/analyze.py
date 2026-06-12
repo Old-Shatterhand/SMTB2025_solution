@@ -22,9 +22,10 @@ from src.downstream.utils import compute_id_2NN, return_data_overlap
 
 
 MAP = {
-    2: ["X", "M"],
-    3: ["H", "E", "C"],
-    8: ["G", "H", "I", "B", "E", "T", "S", "-"],
+    2: list("XM"),
+    3: list("HEC"),
+    8: list("GHIBETSC"),
+    20: list("ACDEFGHIKLMNPQRSTVWY"),
 }
 
 
@@ -78,6 +79,10 @@ def build_aa_dataloader(df: pd.DataFrame, embed_path: Path, n_classes: int) -> t
         labels = "secstr_3c"  # 3-class SSP
     elif n_classes == 8:
         labels = "secstr_8c"  # 8-class SSP
+    elif n_classes == 20:
+        labels = "labels"  # amino-acid identity prediction
+    else:
+        raise ValueError(f"Unsupported number of classes: {n_classes}. Supported values are 2, 3, 8, and 20.")
     
     embeddings = []
     aa_labels = []
@@ -87,7 +92,8 @@ def build_aa_dataloader(df: pd.DataFrame, embed_path: Path, n_classes: int) -> t
             # fetch labels, if they are nan or otherwise broken, skip
             tmp_labels = row[labels]
             sequence = row["sequence"]
-            if not hasattr(tmp_labels, "__len__") or len(tmp_labels) != len(sequence):
+            # Reasons for exclusion: (i) labels don't have the same length as the sequence (except for amino-acid identity prediction), (ii, amino-acid identity prediction) labels contain unknown residue X
+            if not hasattr(tmp_labels, "__len__") or (len(tmp_labels) != len(sequence) and n_classes != 20) or (n_classes == 20 and "X" in tmp_labels):
                 continue
             
             # Need to trim labels because ESM embeddings max length is 1022
@@ -97,8 +103,6 @@ def build_aa_dataloader(df: pd.DataFrame, embed_path: Path, n_classes: int) -> t
             with open(embed_path / f"{row['ID']}.pkl", "rb") as f:
                 tmp = pickle.load(f)
                 tmp = tmp[:1022]
-                if row["ID"].startswith("P000"):
-                    print(tmp.shape, len(tmp_labels))
             
             embeddings.append(tmp)
             aa_labels += [CLASS_MAPPING[c] for c in tmp_labels]
@@ -166,9 +170,9 @@ def knn(
             val_preds = knn.predict(val_X)
             test_preds = knn.predict(test_X)
         else:
-            train_preds = knn.predict(train_X)
-            val_preds = knn.predict(val_X)
-            test_preds = knn.predict(test_X)
+            train_preds = knn.predict_proba(train_X)
+            val_preds = knn.predict_proba(val_X)
+            test_preds = knn.predict_proba(test_X)
 
         with open(r_file, "wb") as f:
             pickle.dump(((train_preds, train_y), (val_preds, val_y), (test_preds, test_y)), f)
@@ -184,7 +188,7 @@ def train_lr_head(
         val_y: np.ndarray, 
         test_X: np.ndarray, 
         test_y: np.ndarray, 
-        task: Literal["regression", "binary", "class"] = "binary",
+        task: Literal["regression", "binary", "multi-class", "multi-label"] = "binary",
         suffix: str = "",
         force: bool = False,
     ) -> None:
@@ -261,7 +265,7 @@ def prepare_dataset(
     val_name = "val" if "val" in df["split"].unique() else "valid"
     if "sampled" in df.columns:
         df = df[df["sampled"] == True]
-    labels = "label"
+    labels = "label" if "label" in df.columns else "labels"
     model_suffix, space_suffix = [], []
     if n_classes is not None:  # amino-acid level prediction
         labels = n_classes
@@ -311,7 +315,7 @@ def main(args):
     torch.manual_seed(args.seed)
 
     df, labels, val_name, model_suffix, space_suffix = prepare_dataset(
-        dataset, args.data_path, args.n_classes, args.level, args.top, args.min
+        dataset, args.data_path, args.n_classes, args.level, args.top, args.min,  # , max_rows=1000,
     )
     calcs = set(args.calcs)
 

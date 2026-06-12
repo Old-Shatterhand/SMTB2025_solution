@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 from matplotlib import gridspec
 from matplotlib.lines import Line2D
 from matplotlib.patches import Rectangle
+import pandas as pd
 
 from src.viz.constants import DS_NAME_MAP, ROOT, REG_METRIC, CLASS_METRIC, MODELS, kill_axis, DATASET2TASK
 from src.viz.utils_general import compute_performance, plot_dataset_finetune_comparison, plot_performance, plot_metric
@@ -243,22 +244,21 @@ def plot_olga():
 
 
 def plot_finetuning_comp():
-    fig = plt.figure(figsize=(9, 9))
-    gs = gridspec.GridSpec(2, 2, figure=fig)
+    fig = plt.figure(figsize=(20, 5))
+    gs = gridspec.GridSpec(1, 4, figure=fig)
     axs = [
-        fig.add_subplot(gs[0, 0]), fig.add_subplot(gs[0, 1]),
-        fig.add_subplot(gs[1, 0]), fig.add_subplot(gs[1, 1]),
+        fig.add_subplot(gs[0]), fig.add_subplot(gs[1]), fig.add_subplot(gs[2]), fig.add_subplot(gs[3]),
     ]
 
-    for i, dataset in enumerate(["fluorescence", "stability", "deeploc2", "deeploc2_bin"]):
-        plot_dataset_finetune_comparison(axs[i], ROOT, dataset, CLASS_METRIC if dataset.startswith("deeploc2") else REG_METRIC, n_classes=10, task=DATASET2TASK[dataset])
+    for i, dataset in enumerate(["fluorescence", "stability", "meltome_atlas", "deeploc2"]):
+        plot_dataset_finetune_comparison(axs[i], ROOT, dataset, "acc" if dataset == "deeploc2" else "spearman", n_classes=10, task=DATASET2TASK[dataset])
+        # plot_dataset_finetune_comparison(axs[i], ROOT, dataset, CLASS_METRIC if dataset.startswith("deeploc2") else REG_METRIC, n_classes=10, task=DATASET2TASK[dataset])
 
     handles, labels = axs[0].get_legend_handles_labels()
     # handles.insert(7, Rectangle((0, 0), 1, 1, fc="w", fill=False, edgecolor='none', linewidth=0))  #plt.Line2D([0], [0], color="black", lw=0, label="OHE"))
     # labels.insert(7, "")
-    fig.legend(handles, labels, loc="lower center", bbox_to_anchor=(0.5, 0), bbox_transform=fig.transFigure, ncol=2)  # -0.08
+    fig.legend(handles, labels, loc="lower center", bbox_to_anchor=(0.5, 0), bbox_transform=fig.transFigure, ncol=4)  # -0.08
 
-    fig.suptitle(f"Comparison of layerwise trained LR and finetuned PLMs", fontsize=16)
     plt.tight_layout(rect=[0, 0.025, 1, 1])
     plt.savefig(f"figures/finetune_comp.pdf")
     plt.savefig(f"figures/finetune_comp.png", transparent=True)
@@ -267,10 +267,12 @@ def plot_finetuning_comp():
 if __name__ == "__main__":
     Path("figures").mkdir(parents=True, exist_ok=True)
 
-    print("Hello")
+    # print("Hello")
     root = Path("/") / "scratch" / "SCRATCH_SAS" / "roman" / "SMTB"
+
+    plot_finetuning_comp()
     # print(compute_scope_performance(root, "ankh_base", "scope_40_208", 35, "lr", "mcc", "superfamily", min_x=10))
-    print(compute_performance(root, "esm_t30", "deeploc2", 10, "lr", "mcc", aa=False, n_classes=10, task="multi-label"))
+    # print(compute_performance(root, "esm_t30", "deeploc2", 10, algo="lr", metric="mcc", aa=False, n_classes=10, task="multi-label"))
 
     # plot_finetuning_comp()
     # plot_dataset_comp("fluorescence")

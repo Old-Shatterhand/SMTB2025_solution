@@ -34,7 +34,7 @@ class GlobalProbe(nn.Module):
             task (Literal["regression", "binary", "multi-class", "multi-label"]): The type of prediction task being performed, which determines the loss function used during training.
         """
         super().__init__()
-        self.weights = nn.Parameter(torch.zeros(num_layers + 1), requires_grad=True)
+        self.weights = nn.Parameter(torch.zeros(num_layers), requires_grad=True)
         self.linear = nn.Linear(input_dim, num_outputs)
         self.head = None
         if task == "multi-class":
@@ -46,7 +46,7 @@ class GlobalProbe(nn.Module):
         
         Args:
             batch (list[torch.Tensor]): A list of tensors, where each tensor corresponds to the representations from a specific layer 
-            for the entire batch. The list should have a length equal to the number of layers being probed (num_layers + 1).
+            for the entire batch. The list should have a length equal to the number of layers being probed (num_layers).
         
         Returns:
             torch.Tensor: The output predictions after combining the layer representations and applying the linear layer.
@@ -60,36 +60,48 @@ class GlobalProbe(nn.Module):
 
 
 class CuPyGlobalProbe:
-    def __init__(self, num_layers: int, num_feats):
+    def __init__(self, num_layers: int, num_feats: int):
         # The models follows y_hat = mixings @ X @ weights
         self.num_layers = num_layers
         self.num_feats = num_feats
 
-        self.mixings = cupy.array(np.random.normal(size=num_layers + 1))
+        self.mixings = cupy.array(np.random.normal(size=num_layers))
         self.weights = cupy.array(np.random.normal(size=num_feats + 1))
     
-    def fit(self, X: cupy.ndarray, y: cupy.ndarray, epsilon=1e-5, epochs=20, min_delta=1e-4):
-        assert X.shape[0] == self.num_layers + 1 and X.shape[2] == self.num_feats, f"Expected X to have shape (L, S, F), ({self.num_layers}, S, {self.num_feats}), got {X.shape} instead."
-        biased_X = cupy.concatenate([cupy.ones((X.shape[0], X.shape[1], 1)), X], axis=2)
+    def fit(self, X_tr: cupy.ndarray, y_tr: cupy.ndarray, X_val: cupy.ndarray, y_val: cupy.ndarray, epochs=50, early_stopping_patience=5, epsilon=1e-5):
+        assert X_tr.shape[0] == self.num_layers and X_tr.shape[2] == self.num_feats, f"Expected X_tr to have shape (L, S, F), ({self.num_layers}, S, {self.num_feats}), got {X_tr.shape} instead."
+        assert X_val.shape[0] == self.num_layers and X_val.shape[2] == self.num_feats, f"Expected X_val to have shape (L, S, F), ({self.num_layers}, S, {self.num_feats}), got {X_val.shape} instead."
+        biased_X = cupy.concatenate([cupy.ones((X_tr.shape[0], X_tr.shape[1], 1)), X_tr], axis=2)
+
+        best_mixings, best_weights = None, None
+        epochs_without_improvement = 0
+
         losses = []
         for epoch in range(epochs):
             # Step 1: Solve for mixings given current weights
-            self.mixings = self._solve_for_mixings(biased_X, y, epsilon)
+            self.mixings = self._solve_for_mixings(biased_X, y_tr, epsilon)
 
             # Step 2: Solve for weights given current mixings
-            self.weights = self._solve_for_weights(biased_X, y)
+            self.weights = self._solve_for_weights(biased_X, y_tr)
 
-            losses.append(cupy.mean((y - self.predict(X)) ** 2))
+            losses.append(cupy.mean((y_val - self.predict(X_val)) ** 2))
             print(f"Epoch {epoch + 1}/{epochs}, Loss: {losses[-1]:.4f}")
 
             # Check for convergence (this is a placeholder, you should implement a proper convergence check based on the change in loss or parameters)
-            if epoch > 3 and abs(losses[-1] - losses[-2]) < min_delta:
-                print(f"Converged at epoch {epoch + 1}")
-                break
+            if epoch < 2 or losses[-1] < losses[-2]:
+                best_mixings, best_weights = copy.deepcopy(self.mixings.get()), copy.deepcopy(self.weights.get())
+                epochs_without_improvement = 0
+            else:
+                epochs_without_improvement += 1
+                if epochs_without_improvement >= early_stopping_patience:
+                    print(f"Early stopping triggered at epoch {epoch + 1}.")
+                    break
+        self.mixings = cupy.array(best_mixings)
+        self.weights = cupy.array(best_weights)
         return losses, self
     
     def predict(self, X: cupy.ndarray):
-        assert X.shape[0] == self.num_layers + 1 and X.shape[2] == self.num_feats, f"Expected X to have shape (L, S, F), ({self.num_layers}, S, {self.num_feats}), got {X.shape} instead."
+        assert X.shape[0] == self.num_layers and X.shape[2] == self.num_feats, f"Expected X to have shape (L, S, F), ({self.num_layers}, S, {self.num_feats}), got {X.shape} instead."
         biased_X = cupy.concatenate([cupy.ones((X.shape[0], X.shape[1], 1)), X], axis=2)
         return cupy.tensordot(cupyx.scipy.special.softmax(self.mixings), biased_X, axes=1) @ self.weights # type: ignore
     
@@ -137,7 +149,7 @@ class GlobalDataset(Dataset):
             label (str): The name of the column in the DataFrame that contains the labels.
         """
         train_X, labels = build_wp_dataloader(df, embed_dir / "layer_0", label)
-        data = [train_X] + [build_wp_dataloader(df, embed_dir / f"layer_{i}", label)[0] for i in range(1, self._layer_limit)]
+        data = np.array([train_X] + [build_wp_dataloader(df, embed_dir / f"layer_{i}", label)[0] for i in range(1, self._layer_limit)])
         if return_type == "pt":
             # return [torch.tensor(d, dtype=torch.float32).to(self.device) for d in data], torch.tensor(labels, dtype=torch.float32 if labels.dtype == np.float32 else torch.long).to(self.device)
             return torch.tensor(data, dtype=torch.float32).to(self.device), torch.tensor(labels, dtype=torch.float32 if labels.dtype == np.float32 else torch.long).to(self.device)
@@ -164,6 +176,10 @@ class GlobalDataset(Dataset):
     def __getitem__(self, idx: int) -> tuple[tuple[torch.Tensor], torch.Tensor]:
         """Returns the representations and label for a given index."""
         return tuple([d[idx] for d in self.data[:self._current_limit]]), self.labels[idx]
+    
+    def get(self) -> tuple[list[torch.Tensor], torch.Tensor]:
+        """Returns the full data and labels for the current layer limit."""
+        return self.data[:self._current_limit], self.labels
 
     def embed_dim(self) -> int:
         """Returns the dimensionality of the embeddings."""
@@ -300,6 +316,7 @@ def routine(
         level: str | None = None,
         top: int | None = None,
         min_: int | None = None,
+        debug: bool = False,
     ) -> None:
     """Main routine to run the global probing process.
     
@@ -311,7 +328,7 @@ def routine(
         task (Literal["regression", "binary", "multi-class", "multi-label"]): The type of prediction task being performed, which determines the loss function used during training.
     """
     dataset_name = data_path.stem
-    df, label, val_name, _, _ = prepare_dataset(dataset_name, data_path, None, level, top, min_, max_rows=1000)
+    df, label, val_name, _, _ = prepare_dataset(dataset_name, data_path, None, level, top, min_, max_rows=1000 if debug else None)
     if level is not None:
         num_outputs = df[label].max() + 1
     train_dataset = GlobalDataset(df, "train", embed_dir, num_layers, label, device=DEVICE, task=task)
@@ -333,18 +350,19 @@ def routine(
     else:
         raise ValueError(f"Unsupported task type: {task}")
     
-    for curr_max_layer in range(num_layers, num_layers + 1):
+    # for curr_max_layer in range(num_layers if debug else 1, num_layers + 1):
+    for curr_max_layer in range(1, num_layers + 1):
         print(f"\n=== Training with up to layer {curr_max_layer} ===")
         train_dataset.set_layer_limit(curr_max_layer)
         valid_dataset.set_layer_limit(curr_max_layer)
 
         if task == "regression":
             model = CuPyGlobalProbe(curr_max_layer, train_dataset.embed_dim())
-            epoch_losses, model = model.fit(train_dataset.data, train_dataset.labels, epochs=50)
+            epoch_losses, model = model.fit(*train_dataset.get(), *valid_dataset.get(), epochs=10 if debug else 50, early_stopping_patience=1 if debug else 5)
             weights.append(model.mixings.get())
             losses.append(epoch_losses)
-            preds.append(model.predict(train_dataset.data).get())
-            targs.append(train_dataset.labels.get())
+            preds.append(model.predict(valid_dataset.get()[0]).get())
+            targs.append(valid_dataset.labels.get())
         else:
             train_dataloader = DataLoader(train_dataset, batch_size=32, shuffle=True)
             valid_dataloader = DataLoader(valid_dataset, batch_size=32, shuffle=False)
@@ -390,6 +408,7 @@ if __name__ == "__main__":
                         help="Minimum number of samples for a label to be included. " \
                         "Only used for SCOPe fold/superfamily prediction, mutually exclusive with --top.")
     parser.add_argument("--task", type=str, choices=["regression", "binary", "multi-class", "multi-label"], required=True, help="Type of prediction task.")
+    parser.add_argument("--debug", action="store_true", help="Run in debug mode with a smaller subset of the data and fewer epochs for faster iteration.")
     args = parser.parse_args()
 
     routine(
@@ -400,5 +419,6 @@ if __name__ == "__main__":
         level=args.level,
         top=args.top,
         min_=args.min,
-        task=args.task
+        task=args.task,
+        debug=args.debug,
     )

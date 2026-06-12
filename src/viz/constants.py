@@ -5,7 +5,7 @@ SPLIT = "valid"
 SPLIT_ID = {"train": 0, "valid": 1, "test": 2}[SPLIT]
 
 MODELS = ["esm_t6", "esm_t12", "esm_t30", "esm_t33", "esm_t36", "esmc_300m", "esmc_600m", "ankh_base", "ankh_large", "prostt5", "prott5", "progen2_small", "progen2_medium", "progen2_large", "protgpt2"]
-WP_DATASETS = ["fluorescence", "fluorescence_classification", "stability", "deeploc2", "deeploc2_bin", "meltome_atlas", "scope_40_208"]
+WP_DATASETS = ["fluorescence", "fluorescence_classification", "stability", "deeploc2", "deeploc2_bin", "meltome_atlas", "scope_40_208", "solubility"]
 AA_DATASETS = ["binding", "scope_40_208"]
 LAST_PROTEIN = {
     "stability": "P68976",
@@ -15,6 +15,22 @@ LAST_PROTEIN = {
     "deeploc2_bin": "P28302",
     "meltome_atlas": "P69276",
     "scope_40_208": "P15176",
+    "solubility": "P71094",
+}
+
+PLM_MODELS = {
+    "esm_t6": "facebook/esm2_t6_8M_UR50D",
+    "esm_t12": "facebook/esm2_t12_35M_UR50D",
+    "esm_t30": "facebook/esm2_t30_150M_UR50D",
+    "esm_t33": "facebook/esm2_t33_650M_UR50D",
+    "esm_t36": "facebook/esm2_t36_3B_UR50D",
+    "ankh_base": "ElnaggarLab/ankh-base",
+    "ankh_large": "ElnaggarLab/ankh-large",
+    "prott5": "Rostlab/prot_t5_xl_uniref50",
+    "prostt5": "Rostlab/ProstT5",
+    "progen2_small": "hugohrban/progen2-small",
+    "progen2_medium": "hugohrban/progen2-medium",
+    "progen2_large": "hugohrban/progen2-large",
 }
 
 LAYERS = {
@@ -81,6 +97,7 @@ DS_NAME_MAP = {
     "deeploc2": "DeepLoc2 (10-class)",
     "deeploc2_bin": "DeepLoc2 (Binary)",
     "meltome_atlas": "Meltome Atlas",
+    "solubility": "Solubility",
 }
 
 REG_METRIC = "rmse"
@@ -101,6 +118,7 @@ DATASET2TASK: dict[str, Literal["regression", "binary", "multi-label", "multi-cl
     "binding": "binary",
     "scope_40_208": "multi-class",
     "stability": "regression",
+    "solubility": "binary",
 }
 
 MODEL_NAMES = {
@@ -131,5 +149,6 @@ DATASET_NAMES = {
     "scope_40_208_superfamily": "SCOPe40 Superfamily",
     "scope_40_208_3ssp": "SCOPe40 3SSP",
     "scope_40_208_8ssp": "SCOPe40 8SSP",
-    "binding": "Binding"
+    "binding": "Binding",
+    "solubility": "Solubility"
 }
