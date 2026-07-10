@@ -15,6 +15,7 @@ import torch
 import numpy as np
 import pandas as pd
 from cuml import PCA
+from datasail.sail import datasail
 from sklearn.multioutput import MultiOutputClassifier
 from cuml.neighbors import KNeighborsClassifier as kNN_class, KNeighborsRegressor as kNN_reg
 
@@ -29,7 +30,7 @@ MAP = {
 }
 
 
-def build_wp_dataloader(df: pd.DataFrame, embed_path: Path, labels: str | list[str]) -> tuple[np.ndarray, np.ndarray]:
+def build_wp_dataloader(df: pd.DataFrame, embed_path: Path, labels: str | list[str]) -> tuple[np.ndarray, np.ndarray, list[str]]:
     """
     Build a DataLoader for the given DataFrame and embedding path.
 
@@ -43,6 +44,7 @@ def build_wp_dataloader(df: pd.DataFrame, embed_path: Path, labels: str | list[s
     """
     embeddings = []
     valid_ids = set()
+    ids = []
     for i, idx in enumerate(df["ID"].values):
         try:
             with open(embed_path / f"{idx}.pkl", "rb") as f:
@@ -51,16 +53,17 @@ def build_wp_dataloader(df: pd.DataFrame, embed_path: Path, labels: str | list[s
                 tmp = tmp.cpu().numpy()
             embeddings.append(tmp)
             valid_ids.add(idx)
+            ids.append(idx)
         except Exception as e:
             print(e)
             pass
     
     inputs = np.stack(embeddings)
     targets = np.array(df[df["ID"].isin(valid_ids)][labels].values).astype(np.float32)
-    return inputs, targets
+    return inputs, targets, ids
 
 
-def build_aa_dataloader(df: pd.DataFrame, embed_path: Path, n_classes: int) -> tuple[np.ndarray, np.ndarray]:
+def build_aa_dataloader(df: pd.DataFrame, embed_path: Path, n_classes: int) -> tuple[np.ndarray, np.ndarray, None]:
     """
     Build amino-acid level dataloader from precomputed embeddings.
     
@@ -102,6 +105,8 @@ def build_aa_dataloader(df: pd.DataFrame, embed_path: Path, n_classes: int) -> t
             # load embeddings
             with open(embed_path / f"{row['ID']}.pkl", "rb") as f:
                 tmp = pickle.load(f)
+                if len(tmp.shape) == 1:
+                    tmp = tmp.reshape(1, -1)
                 tmp = tmp[:1022]
             
             embeddings.append(tmp)
@@ -110,10 +115,10 @@ def build_aa_dataloader(df: pd.DataFrame, embed_path: Path, n_classes: int) -> t
             print(e)
             pass
     embeddings = np.concatenate(embeddings, axis=0)
-    return embeddings, np.array(aa_labels)
+    return embeddings, np.array(aa_labels), None
 
 
-def build_dataloader(df: pd.DataFrame, embed_path: Path, labels: str | list[str] | int) -> tuple[np.ndarray, np.ndarray]:
+def build_dataloader(df: pd.DataFrame, embed_path: Path, labels: str | list[str] | int) -> tuple[np.ndarray, np.ndarray, list[str] | None]:
     """
     Build a DataLoader for the given DataFrame and embedding path.
 
@@ -132,10 +137,13 @@ def knn(
         out_folder: Path, 
         train_X: np.ndarray, 
         train_y: np.ndarray, 
+        train_ids: list[str] | None,
         val_X: np.ndarray, 
         val_y: np.ndarray, 
+        val_ids: list[str] | None,
         test_X: np.ndarray, 
-        test_y: np.ndarray, 
+        test_y: np.ndarray,
+        test_ids: list[str] | None,
         n_neighbors: int = 10,
         task: Literal["regression", "binary", "multi-class", "multi-label"] = "binary",
         suffix: str = "",
@@ -148,10 +156,13 @@ def knn(
         out_folder (Path): Output folder to save predictions.
         train_X (np.ndarray): Training features.
         train_y (np.ndarray): Training labels.
+        train_ids (list[str]): Training sample identifiers.
         val_X (np.ndarray): Validation features.
         val_y (np.ndarray): Validation labels.
+        val_ids (list[str]): Validation sample identifiers.
         test_X (np.ndarray): Test features.
         test_y (np.ndarray): Test labels.
+        test_ids (list[str]): Test sample identifiers.
         n_classes (int): Number of classes.
         n_neighbors (int): Number of neighbors for kNN.
         task: Type of task: "regression", "binary", "multi-class", or "multi-label".
@@ -175,7 +186,7 @@ def knn(
             test_preds = knn.predict_proba(test_X)
 
         with open(r_file, "wb") as f:
-            pickle.dump(((train_preds, train_y), (val_preds, val_y), (test_preds, test_y)), f)
+            pickle.dump(((train_preds, train_y, train_ids), (val_preds, val_y, val_ids), (test_preds, test_y, test_ids)), f)
     
     return knn.kneighbors(train_X)
 
@@ -184,10 +195,13 @@ def train_lr_head(
         out_folder: Path, 
         train_X: np.ndarray, 
         train_y: np.ndarray, 
+        train_ids: list[str] | None,
         val_X: np.ndarray, 
         val_y: np.ndarray, 
+        val_ids: list[str] | None,
         test_X: np.ndarray, 
-        test_y: np.ndarray, 
+        test_y: np.ndarray,
+        test_ids: list[str] | None, 
         task: Literal["regression", "binary", "multi-class", "multi-label"] = "binary",
         suffix: str = "",
         force: bool = False,
@@ -199,10 +213,13 @@ def train_lr_head(
         out_folder (Path): Output folder to save predictions.
         train_X (np.ndarray): Training features.
         train_y (np.ndarray): Training labels.
+        train_ids (list[str]): Training sample identifiers.
         val_X (np.ndarray): Validation features.
         val_y (np.ndarray): Validation labels.
+        val_ids (list[str]): Validation sample identifiers.
         test_X (np.ndarray): Test features.
         test_y (np.ndarray): Test labels.
+        test_ids (list[str]): Test sample identifiers.
         task: Type of task: "regression", "binary", "multi-class", or "multi-label".
         suffix (str): Suffix for output files.
         force (bool): Whether to force retraining even if predictions exist.
@@ -233,7 +250,7 @@ def train_lr_head(
         test_preds = model.predict_proba(test_X)
 
     with open(r_file, "wb") as f:
-        pickle.dump(((train_preds, train_y), (val_preds, val_y), (test_preds, test_y)), f)
+        pickle.dump(((train_preds, train_y, train_ids), (val_preds, val_y, val_ids), (test_preds, test_y, test_ids)), f)
 
 
 def prepare_dataset(
@@ -244,6 +261,7 @@ def prepare_dataset(
         top: int | None = None, 
         min_: int | None = None,
         max_rows: int | None = None,
+        seed: int = 0,
     ) -> tuple[pd.DataFrame, str | list[str] | int, str, str, str]:
     """
     Prepare the dataset for analysis by loading it, filtering it based on the provided arguments, and determining the appropriate labels and suffixes for model training and result saving.
@@ -260,13 +278,17 @@ def prepare_dataset(
     # load the dataset and reduce it to the sampled sequences only (if applicable)
     df = pd.read_csv(data_path)
     df = df.sample(n=len(df))
-    df = df.head(max_rows) if max_rows is not None else df
+    if max_rows is not None and level is None:
+        df = df.head(int(len(df) * max_rows) if 0 < max_rows < 1 else int(max_rows))
     
     val_name = "val" if "val" in df["split"].unique() else "valid"
     if "sampled" in df.columns:
         df = df[df["sampled"] == True]
     labels = "label" if "label" in df.columns else "labels"
     model_suffix, space_suffix = [], []
+    if max_rows is not None:
+        model_suffix.append(f"max{max_rows}_{seed}")
+        space_suffix.append(f"max{max_rows}_{seed}")
     if n_classes is not None:  # amino-acid level prediction
         labels = n_classes
         model_suffix.append(n_classes)
@@ -291,6 +313,13 @@ def prepare_dataset(
             labels = level
         if dataset_name == "deeploc2":
             labels = ["Cytoplasm", "Nucleus", "Extracellular", "Cell membrane", "Mitochondrion", "Plastid", "Endoplasmic reticulum", "Lysosome/Vacuole", "Golgi apparatus", "Peroxisome"]
+        # if dataset_name == "meltome_atlas_species":
+        #     labels = ["Thermus_thermophilus", "Picrophilus_torridus", "Geobacillus_stearothermophilus", "Mus_musculus", "Escherichia_coli", "Bacillus_subtilis", "Saccharomyces_cerevisiae", "Drosophila_melanogaster", "Danio_rerio", "Arabidopsis_thaliana", "Caenorhabditis_elegans", "Oleispira_antarctica",]
+    if max_rows is not None and level is not None:
+        max_rows = max_rows if 0 < max_rows < 1 else (max_rows / len(df))
+        split, _, _ = datasail(techniques=["I1e"], splits=[1 - max_rows, max_rows], epsilon=0.1, delta=0.1, names=["drop", "keep"], e_type="O", e_data=dict(df[["ID", "ID"]].values), e_strat=dict(df[["ID", level]].values))
+        mask = df["ID"].apply(lambda x: split["I1e"][0][x] == "keep")
+        df = df[mask]
     
     model_suffix = "_".join(map(str, model_suffix))
     if len(model_suffix) != 0:
@@ -304,7 +333,7 @@ def prepare_dataset(
 
 def main(args):
     start = time()
-    print(f"[{datetime.now()}] Starting AA model rolling computation...")
+    print(f"[{datetime.now()}] Starting rolling model computation...")
     dataset = args.data_path.stem
     base_result_folder = args.embed_base.parent / dataset 
     (base_result_folder / "layer_0").mkdir(parents=True, exist_ok=True)
@@ -315,16 +344,16 @@ def main(args):
     torch.manual_seed(args.seed)
 
     df, labels, val_name, model_suffix, space_suffix = prepare_dataset(
-        dataset, args.data_path, args.n_classes, args.level, args.top, args.min,  # , max_rows=1000,
+        dataset, args.data_path, args.n_classes, args.level, args.top, args.min, max_rows=args.max_rows, seed=args.seed,
     )
     calcs = set(args.calcs)
 
     # Load the first layer embeddings
     print(f"[{time() - start:.2f}s] Loading layer 0 embeddings...")
-    curr_train_X, curr_train_y = build_dataloader(df[df["split"] == "train"], args.embed_base / f"layer_{args.start_layer}", labels)
+    curr_train_X, curr_train_y, curr_train_ids = build_dataloader(df[df["split"] == "train"], args.embed_base / f"layer_{args.start_layer}", labels)
     if {'knn', 'id', 'no', 'lr'}.intersection(calcs):
-        curr_val_X, curr_val_y = build_dataloader(df[df["split"] == val_name], args.embed_base / f"layer_{args.start_layer}", labels)
-        curr_test_X, curr_test_y = build_dataloader(df[df["split"] == "test"], args.embed_base / f"layer_{args.start_layer}", labels)
+        curr_val_X, curr_val_y, curr_val_ids = build_dataloader(df[df["split"] == val_name], args.embed_base / f"layer_{args.start_layer}", labels)
+        curr_test_X, curr_test_y, curr_test_ids = build_dataloader(df[df["split"] == "test"], args.embed_base / f"layer_{args.start_layer}", labels)
 
     if {'knn', 'id', 'no'}.intersection(calcs):
         print(f"[{time() - start:.2f}s] Fitting kNN on layer 0 ...")
@@ -332,10 +361,13 @@ def main(args):
             out_folder=base_result_folder / f"layer_{args.start_layer}", 
             train_X=curr_train_X, 
             train_y=curr_train_y, 
+            train_ids=curr_train_ids,
             val_X=curr_val_X, 
             val_y=curr_val_y, 
+            val_ids=curr_val_ids,
             test_X=curr_test_X, 
             test_y=curr_test_y, 
+            test_ids=curr_test_ids,
             n_neighbors=args.k, 
             task=args.task, 
             suffix=model_suffix, 
@@ -348,10 +380,13 @@ def main(args):
             out_folder=base_result_folder / f"layer_{args.start_layer}", 
             train_X=curr_train_X, 
             train_y=curr_train_y, 
+            train_ids=curr_train_ids,
             val_X=curr_val_X, 
             val_y=curr_val_y, 
+            val_ids=curr_val_ids,
             test_X=curr_test_X, 
             test_y=curr_test_y, 
+            test_ids=curr_test_ids,
             task=args.task, 
             suffix=model_suffix, 
             force=args.force
@@ -383,10 +418,10 @@ def main(args):
 
         # Load the next layer embeddings
         print(f"[{time() - start:.2f}s] Loading layer {layer + 1} embeddings...")
-        next_train_X, next_train_y = build_dataloader(df[df["split"] == "train"], args.embed_base / f"layer_{layer + 1}", labels)
+        next_train_X, next_train_y, next_train_ids = build_dataloader(df[df["split"] == "train"], args.embed_base / f"layer_{layer + 1}", labels)
         if {'knn', 'id', 'no', 'lr'}.intersection(calcs):
-            next_val_X, next_val_y = build_dataloader(df[df["split"] == val_name], args.embed_base / f"layer_{layer + 1}", labels)
-            next_test_X, next_test_y = build_dataloader(df[df["split"] == "test"], args.embed_base / f"layer_{layer + 1}", labels)
+            next_val_X, next_val_y, next_val_ids = build_dataloader(df[df["split"] == val_name], args.embed_base / f"layer_{layer + 1}", labels)
+            next_test_X, next_test_y, next_test_ids = build_dataloader(df[df["split"] == "test"], args.embed_base / f"layer_{layer + 1}", labels)
 
         if {'knn', 'id', 'no'}.intersection(calcs):
             print(f"[{time() - start:.2f}s] Fitting kNN on layer {layer + 1} ...")
@@ -394,10 +429,13 @@ def main(args):
                 out_folder=base_result_folder / f"layer_{layer + 1}", 
                 train_X=next_train_X, 
                 train_y=next_train_y, 
+                train_ids=next_train_ids,
                 val_X=next_val_X, 
-                val_y=next_val_y, 
+                val_y=next_val_y,
+                val_ids=next_val_ids,
                 test_X=next_test_X, 
-                test_y=next_test_y, 
+                test_y=next_test_y,
+                test_ids=next_test_ids,
                 n_neighbors=args.k, 
                 task=args.task, 
                 suffix=model_suffix, 
@@ -410,10 +448,13 @@ def main(args):
                 out_folder=base_result_folder / f"layer_{layer + 1}", 
                 train_X=next_train_X, 
                 train_y=next_train_y, 
+                train_ids=next_train_ids,
                 val_X=next_val_X, 
                 val_y=next_val_y, 
+                val_ids=next_val_ids,
                 test_X=next_test_X, 
                 test_y=next_test_y, 
+                test_ids=next_test_ids,
                 task=args.task, 
                 suffix=model_suffix, 
                 force=args.force
@@ -464,5 +505,6 @@ if __name__ == "__main__":
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
     parser.add_argument('--force', action='store_true', help='Force recomputation even if results exist')
     parser.add_argument('--start-layer', type=int, default=0, help='Layer to start the analysis from')
+    parser.add_argument('--max-rows', type=float, default=None, help='Maximum number of rows (or ratio thereof) to load from the dataset.')
     args = parser.parse_args()
     main(args)

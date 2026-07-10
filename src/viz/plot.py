@@ -8,7 +8,7 @@ from matplotlib.patches import Rectangle
 import pandas as pd
 
 from src.viz.constants import DS_NAME_MAP, ROOT, REG_METRIC, CLASS_METRIC, MODELS, kill_axis, DATASET2TASK
-from src.viz.utils_general import compute_performance, plot_dataset_finetune_comparison, plot_performance, plot_metric
+from src.viz.utils_general import compute_performance, plot_dataset_finetune_comparison, plot_performance, plot_metric, set_subplot_label
 from src.viz.utils_scope import compute_scope_performance, plot_scope_minx_performance, plot_scope_minx_metric
 
 
@@ -251,14 +251,18 @@ def plot_finetuning_comp():
     ]
 
     for i, dataset in enumerate(["fluorescence", "stability", "meltome_atlas", "deeploc2"]):
-        plot_dataset_finetune_comparison(axs[i], ROOT, dataset, "acc" if dataset == "deeploc2" else "spearman", n_classes=10, task=DATASET2TASK[dataset])
-        # plot_dataset_finetune_comparison(axs[i], ROOT, dataset, CLASS_METRIC if dataset.startswith("deeploc2") else REG_METRIC, n_classes=10, task=DATASET2TASK[dataset])
+        # plot_dataset_finetune_comparison(axs[i], ROOT, dataset, "acc" if dataset == "deeploc2" else "spearman", n_classes=10, task=DATASET2TASK[dataset])
+        plot_dataset_finetune_comparison(axs[i], ROOT, dataset, "mcc" if dataset.startswith("deeploc2") else "r2", n_classes=10, task=DATASET2TASK[dataset])
 
     handles, labels = axs[0].get_legend_handles_labels()
     # handles.insert(7, Rectangle((0, 0), 1, 1, fc="w", fill=False, edgecolor='none', linewidth=0))  #plt.Line2D([0], [0], color="black", lw=0, label="OHE"))
     # labels.insert(7, "")
-    fig.legend(handles, labels, loc="lower center", bbox_to_anchor=(0.5, 0), bbox_transform=fig.transFigure, ncol=4)  # -0.08
+    fig.legend(handles, labels, loc="lower center", bbox_to_anchor=(0.5, 0), bbox_transform=fig.transFigure, ncol=4)
 
+    for i in range(4):
+        set_subplot_label(axs[i], fig, label=chr(65 + i))
+        axs[i].grid()
+    
     plt.tight_layout(rect=[0, 0.025, 1, 1])
     plt.savefig(f"figures/finetune_comp.pdf")
     plt.savefig(f"figures/finetune_comp.png", transparent=True)

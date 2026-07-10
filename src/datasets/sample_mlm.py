@@ -56,7 +56,43 @@ def sample_dataset(
 
     df = pd.DataFrame(data)
     df["ID"] = [f"P{i:05d}" for i in range(len(df))]
-    return df
+    return df[["ID", "sequence", "labels", "positions", "split"]]
+
+
+def sample_ntp(
+        sequences: pd.Series = pd.Series(dtype=str),
+        n_samples: int = 1000,
+        train_size: float = 0.8,
+        val_size: float = 0.1,
+        random_state: int = 42,
+    ) -> pd.DataFrame:
+    """
+    Sample a dataset for NTP (Next Token Prediction).
+
+    Args:
+        sequences (pd.Series): A pandas Series containing the sequences to sample from.
+        n_samples (int): The number of samples to generate.
+        train_size (float): The proportion of the dataset to include in the training split.
+        val_size (float): The proportion of the dataset to include in the validation split.
+        random_state (int): The random seed for reproducibility.
+
+    Returns:
+        pd.DataFrame: A DataFrame containing the sampled sequences, labels, and split information.
+    """
+    np.random.seed(random_state)
+    data = []
+    while len(data) < n_samples:
+        seq = sequences.sample(n=1).iloc[0]
+        pos = np.random.randint(1, min(len(seq) - 1, 1022))
+        data.append({
+            "sequence": seq[:pos],
+            "labels": seq[pos],
+        })
+
+    df = pd.DataFrame(data)
+    df["split"] = np.random.choice(["train", "val", "test"], size=len(df), p=[train_size, val_size, 1 - train_size - val_size])
+    df["ID"] = [f"P{i:05d}" for i in range(len(df))]
+    return df[["ID", "sequence", "labels", "split"]]
 
 
 if __name__ == "__main__":
@@ -69,15 +105,24 @@ if __name__ == "__main__":
     parser.add_argument("--mask_prob", type=float, default=0.15, help="Probability of masking a token.")
     parser.add_argument("--train-size", type=float, default=0.8, help="Proportion of training data.")
     parser.add_argument("--val-size", type=float, default=0.1, help="Proportion of validation data.")
+    parser.add_argument("--ntp", action="store_true", help="Sample for Next Token Prediction instead of MLM.")
     args = parser.parse_args()
     dataset = pd.read_csv(args.input_file)
-    sample_df = sample_dataset(
-        dataset[args.sequence_column],
-        mask_token=args.mask_token,
-        n_samples=args.n_samples,
-        mask_prob=args.mask_prob,
-        train_size=args.train_size,
-        val_size=args.val_size,
-    )
+    if args.ntp:
+        sample_df = sample_ntp(
+            dataset[args.sequence_column],
+            n_samples=args.n_samples,
+            train_size=args.train_size,
+            val_size=args.val_size,
+        )
+    else:
+        sample_df = sample_dataset(
+            dataset[args.sequence_column],
+            mask_token=args.mask_token,
+            n_samples=args.n_samples,
+            mask_prob=args.mask_prob,
+            train_size=args.train_size,
+            val_size=args.val_size,
+        )
     Path(args.output_file).parent.mkdir(parents=True, exist_ok=True)
     sample_df.to_csv(args.output_file, index=False)

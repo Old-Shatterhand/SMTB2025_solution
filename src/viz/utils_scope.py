@@ -7,30 +7,6 @@ from src.viz.constants import LAYERS, MODEL_COLORS, MODEL_MARKERS, MODEL_NAMES, 
 from src.viz.utils_general import compute_metric, read_pca_metric
 
 
-def compute_scope_performance(
-        root: Path, 
-        model, 
-        dataset, 
-        layer, 
-        algo, 
-        metric, 
-        level, 
-        k=None, 
-        min_x=None
-    ):
-    assert (k is not None) != (min_x is not None), "Exactly one of k and min_x must be provided."
-    fpath = root / "embeddings" / model / dataset / f"layer_{layer}" / f"predictions_{algo}_{level}_{k if k is not None else f'min{min_x}'}.pkl"
-    if not fpath.exists():
-        return 0
-    with open(fpath, "rb") as f:
-        try:
-            y_hat, y = pd.read_pickle(f)[1]
-        except Exception as e:
-            print(f"Error reading {fpath}: {e}")
-            return 0
-    return compute_metric(np.array(y_hat), np.array(y), metric, task="multi-class")
-
-
 # Unused
 def plot_scope_top4_metric(ax, root, algorithm, metric, level, relative):
     for model in MODELS:
@@ -88,76 +64,4 @@ def read_correlations(root: Path, model, layer, level, k):
     return corrs["spearman"].values[0], corrs["pearson"].values[0]
 
 
-def read_metric(root: Path, model, layer, metric, filename):
-    if metric in {"zero", "pc@95", "var@10", "5dvol"}:
-        return read_pca_metric(root, model, "scope_40_208", layer, metric, filename)
-    
-    name_map = {"ids": "twonn_id", "density": "density", "noverlap": "neighbor_overlap", "noverlap_50": "neighbor_overlap"}
-    filepath = root / "embeddings" / model / "scope_40_208" / f"layer_{layer}" / filename
-    if not filepath.exists():
-        return 0
-    df = pd.read_csv(filepath)
-    return df[name_map[metric]].values[0]
 
-
-def plot_scope_minx_performance(ax, root, algorithm, metric, level, model_prefix, relative: bool = True, colored: bool | str = True, title: str | bool | None = None, models: list[str] = MODELS):
-    for model in models:
-        perfs = [compute_scope_performance(root, model_prefix + model, "scope_40_208", layer, algorithm, metric, level, min_x=10) for layer in range(LAYERS[model] + 1)]
-        if sum([abs(p) for p in perfs]) == 0:  # drop performances that are 0 throughout
-            continue
-        ax.plot(
-            np.arange(0, 1 + 1e-5, 1 / (LAYERS[model])) if relative else np.arange(LAYERS[model] + 1), 
-            perfs, 
-            label=model_prefix + MODEL_NAMES.get(model, model), 
-            color=MODEL_COLORS.get(model, None) if colored == True else colored, 
-            marker=MODEL_MARKERS.get(model, None) if colored == True else None
-        )
-
-    ax.set_xlabel(("Relative" if relative else "Absolute") + " Layer")
-    ax.set_ylabel(metric.upper())
-    if not isinstance(title, bool) or title:
-        ax.set_title(title or f"{metric.upper()} of {algorithm.upper()} heads")
-    # ax.set_ylim(bottom=-0.05, top=1.05)
-
-
-def plot_scope_minx_metric(
-        ax, 
-        root: Path, 
-        metric: str, 
-        level: str, 
-        model_prefix: str = "", 
-        relative: bool = True, 
-        models: list[str] = MODELS,
-        title: str | bool | None = None,
-        legend: bool = False,
-    ):
-    title_map = {"ids": "Intrinsic Dimensions", "density": "Density", "noverlap": "Neighbor Overlap", "noverlap_50": "Neighbor Overlap (50)"}
-    for model in models:
-        perfs = []
-        for layer in range(LAYERS[model] + 1):
-            if metric.startswith("noverlap") and layer == LAYERS[model]:
-                continue
-            if metric in {"zero", "pc@95", "var@10", "5dvol"}:
-                result = read_metric(root, model_prefix + model, layer, metric, f"pca_{level}_min10.pkl")
-            else:
-                result = read_metric(root, model_prefix + model, layer, metric, f"{metric}_{level}_min10.csv")
-            perfs.append(result)
-        if relative:
-            x_ticks = np.arange(0, 1 + 1e-5, 1 / (LAYERS[model]))
-            if metric.startswith("noverlap"):
-                x_ticks = x_ticks[:-1]
-                x_ticks += 1 / (2 * LAYERS[model])
-            ax.plot(x_ticks, perfs, label=model_prefix + MODEL_NAMES.get(model, model), color=MODEL_COLORS.get(model, None), marker=MODEL_MARKERS.get(model, None))
-        else:
-            ax.plot(perfs, label=model_prefix + MODEL_NAMES.get(model, model), color=MODEL_COLORS.get(model, None), marker=MODEL_MARKERS.get(model, None))
-    
-    if metric == "5dvol":
-        ax.set_yscale("log")
-    ax.set_xlabel(("Relative" if relative else "Absolute") + " Layer")
-    ax.set_ylabel(title_map.get(metric, metric))
-    if not isinstance(title, bool) or title:
-        ax.set_title(title or title_map.get(metric, metric))
-    if metric not in {"ids", "density", "5dvol"}:
-        ax.set_ylim(bottom=-0.05, top=1.05)
-    if legend:
-        ax.legend()

@@ -1,37 +1,20 @@
 from pathlib import Path
 from typing import Literal
 
+
+def kill_axis(ax):
+    ax.set_axis_off()
+
 SPLIT = "valid"
 SPLIT_ID = {"train": 0, "valid": 1, "test": 2}[SPLIT]
 
 MODELS = ["esm_t6", "esm_t12", "esm_t30", "esm_t33", "esm_t36", "esmc_300m", "esmc_600m", "ankh_base", "ankh_large", "prostt5", "prott5", "progen2_small", "progen2_medium", "progen2_large", "protgpt2"]
-WP_DATASETS = ["fluorescence", "fluorescence_classification", "stability", "deeploc2", "deeploc2_bin", "meltome_atlas", "scope_40_208", "solubility"]
+WP_DATASETS = ["fluorescence", "fluorescence_classification", "stability", "deeploc2", "deeploc2_bin", "meltome_atlas", "meltome_atlas_species", "scope_40_208", "solubility", "gb1"]
 AA_DATASETS = ["binding", "scope_40_208"]
-LAST_PROTEIN = {
-    "stability": "P68976",
-    "fluorescence": "P54024",
-    "fluorescence_classification": "P54024",
-    "deeploc2": "P28302",
-    "deeploc2_bin": "P28302",
-    "meltome_atlas": "P69276",
-    "scope_40_208": "P15176",
-    "solubility": "P71094",
-}
+DATASETS = WP_DATASETS + AA_DATASETS
 
-PLM_MODELS = {
-    "esm_t6": "facebook/esm2_t6_8M_UR50D",
-    "esm_t12": "facebook/esm2_t12_35M_UR50D",
-    "esm_t30": "facebook/esm2_t30_150M_UR50D",
-    "esm_t33": "facebook/esm2_t33_650M_UR50D",
-    "esm_t36": "facebook/esm2_t36_3B_UR50D",
-    "ankh_base": "ElnaggarLab/ankh-base",
-    "ankh_large": "ElnaggarLab/ankh-large",
-    "prott5": "Rostlab/prot_t5_xl_uniref50",
-    "prostt5": "Rostlab/ProstT5",
-    "progen2_small": "hugohrban/progen2-small",
-    "progen2_medium": "hugohrban/progen2-medium",
-    "progen2_large": "hugohrban/progen2-large",
-}
+REG_METRIC = "pearson"
+CLASS_METRIC = "mcc"
 
 LAYERS = {
     "esm_t6": 6,
@@ -53,6 +36,7 @@ LAYERS = {
 }
 
 MODEL_COLORS = {
+    "esm_fine": "navy",
     "esm_t6": "royalblue",
     "esm_t12": "royalblue",
     "esm_t30": "royalblue",
@@ -72,6 +56,7 @@ MODEL_COLORS = {
 }
 
 MODEL_MARKERS = {
+    "esm_fine": "X",
     "esm_t6": "|",
     "esm_t12": "2",
     "esm_t30": "x",
@@ -90,23 +75,42 @@ MODEL_MARKERS = {
     "ohe": "|",
 }
 
-DS_NAME_MAP = {
-    "fluorescence": "Fluorescence",
-    "fluorescence_classification": "Fluorescence (Classification)",
-    "stability": "Stability",
-    "deeploc2": "DeepLoc2 (10-class)",
-    "deeploc2_bin": "DeepLoc2 (Binary)",
-    "meltome_atlas": "Meltome Atlas",
-    "solubility": "Solubility",
+MODEL_NAMES = {
+    "esm_fine": "fine-tuned ESM-2 150M",
+    "esm_t6": "ESM-2 8M",
+    "esm_t12": "ESM-2 35M",
+    "esm_t30": "ESM-2 150M",
+    "esm_t33": "ESM-2 650M",
+    "esm_t36": "ESM-2 3B",
+    "esmc_300m": "ESMC 300M",
+    "esmc_600m": "ESMC 600M",
+    "ankh_base": "Ankh Base",
+    "ankh_large": "Ankh Large",
+    "prott5": "ProtT5",
+    "prostt5": "ProstT5",
+    "progen2_small": "ProGen2 Small",
+    "progen2_medium": "ProGen2 Medium",
+    "progen2_large": "ProGen2 Large",
+    "protgpt2": "ProtGPT2",
+    "ohe": "OHE",
 }
 
-REG_METRIC = "rmse"
-CLASS_METRIC = "mcc"
-ROOT = Path("/") / "scratch" / "SCRATCH_SAS" / "roman" / "SMTB"
-
-def kill_axis(ax):
-    ax.set_axis_off()
-
+DATASET_NAMES = {
+    "fluorescence_classification": "Fluorescence Binary",
+    "fluorescence": "Fluorescence Regression",
+    "meltome_atlas": "Meltome Atlas Temperature",
+    "meltome_atlas_species": "Meltome Atlas Species",
+    "stability": "Stability",
+    "deeploc2_bin": "DeepLoc2.0 Binary",
+    "deeploc2": "DeepLoc2.0 10-class",
+    "scope_40_208_fold": "SCOPe40 Fold",
+    "scope_40_208_superfamily": "SCOPe40 Superfamily",
+    "scope_40_208_3ssp": "SCOPe40 3-class SSP",
+    "scope_40_208_8ssp": "SCOPe40 8-class SSP",
+    "binding": "Binding",
+    "solubility": "DeepSol",
+    "gb1": "GB1",
+}
 
 DATASET2TASK: dict[str, Literal["regression", "binary", "multi-label", "multi-class"]] = {
     "fluorescence": "regression",
@@ -115,40 +119,58 @@ DATASET2TASK: dict[str, Literal["regression", "binary", "multi-label", "multi-cl
     "deeploc2": "multi-label",
     "deeploc2_bin": "binary",
     "meltome_atlas": "regression",
+    "meltome_atlas_species": "multi-class",
     "binding": "binary",
     "scope_40_208": "multi-class",
+    "scope_40_208_fold": "multi-class",
+    "scope_40_208_superfamily": "multi-class",
+    "scope_40_208_3ssp": "multi-class",
+    "scope_40_208_8ssp": "multi-class",
     "stability": "regression",
     "solubility": "binary",
+    "gb1": "regression",
 }
 
-MODEL_NAMES = {
-    "esm_t6": "ESM2 t6",
-    "esm_t12": "ESM2 t12",
-    "esm_t30": "ESM2 t30",
-    "esm_t33": "ESM2 t33",
-    "esm_t36": "ESM2 t36",
-    "esmc_300m": "ESMC 300M",
-    "esmc_600m": "ESMC 600M",
-    "ankh_base": "Ankh Base",
-    "ankh_large": "Ankh Large",
-    "prostt5": "ProtT5",
-    "prott5": "ProstT5",
-    "progen2_small": "Progen2 Small",
-    "progen2_medium": "Progen2 Medium",
-    "progen2_large": "Progen2 Large",
-    "protgpt2": "ProtGPT2"
+TASK_METRICS = {
+    "regression": REG_METRIC,
+    "binary": CLASS_METRIC,
+    "multi-label": CLASS_METRIC,
+    "multi-class": CLASS_METRIC,
 }
-DATASET_NAMES = {
-    "fluorescence": "Fluorescence",
-    "fluorescence_classification": "Fluorescence Class.",
-    "meltome_atlas": "Meltome Atlas",
-    "stability": "Stability",
-    "deeploc2": "DeepLoc2 10c",
-    "deeploc2_bin": "DeepLoc2 Bin.",
-    "scope_40_208_fold": "SCOPe40 Fold",
-    "scope_40_208_superfamily": "SCOPe40 Superfamily",
-    "scope_40_208_3ssp": "SCOPe40 3SSP",
-    "scope_40_208_8ssp": "SCOPe40 8SSP",
-    "binding": "Binding",
-    "solubility": "Solubility"
+
+METRIC_TITLES = {
+    "r2": r"$R^2\ (↑)$",
+    "pearson": "Pearson's r (↑)",
+    "spearman": "Spearman's ρ (↑)",
+    "rmse": "RMSE (↓)",
+    "mcc": "MCC (↑)",
+    "ids": "2NN ID",
+    "noverlap": "Neighborhood Overlap",
+    "var@10": "Variance @ 10",
+}
+
+PLM_MODELS = {
+    "esm_t6": "facebook/esm2_t6_8M_UR50D",
+    "esm_t12": "facebook/esm2_t12_35M_UR50D",
+    "esm_t30": "facebook/esm2_t30_150M_UR50D",
+    "esm_t33": "facebook/esm2_t33_650M_UR50D",
+    "esm_t36": "facebook/esm2_t36_3B_UR50D",
+    "ankh_base": "ElnaggarLab/ankh-base",
+    "ankh_large": "ElnaggarLab/ankh-large",
+    "prott5": "Rostlab/prot_t5_xl_uniref50",
+    "prostt5": "Rostlab/ProstT5",
+    "progen2_small": "hugohrban/progen2-small",
+    "progen2_medium": "hugohrban/progen2-medium",
+    "progen2_large": "hugohrban/progen2-large",
+}
+
+LAST_PROTEIN = {
+    "stability": "P68976",
+    "fluorescence": "P54024",
+    "fluorescence_classification": "P54024",
+    "deeploc2": "P28302",
+    "deeploc2_bin": "P28302",
+    "meltome_atlas": "P69276",
+    "scope_40_208": "P15176",
+    "solubility": "P71094",
 }

@@ -28,7 +28,6 @@ def process_deeploc_data(save_path: Path) -> None:
     save_path.mkdir(parents=True, exist_ok=True)
     df.rename(columns={"ACC": "UniProt_ID"}, inplace=True)
     df[['ID', 'UniProt_ID', 'sequence', 'Cytoplasm', 'Nucleus', 'Extracellular', 'Cell membrane', 'Mitochondrion', 'Plastid', 'Endoplasmic reticulum', 'Lysosome/Vacuole', 'Golgi apparatus', 'Peroxisome', 'split']].to_csv(save_path / 'deeploc2.csv', index=False)
-    print(df.columns)
     print("DeepLoc2 10-class dataset saved to", save_path / 'deeploc2.csv')
 
     df = df[["ID", 'UniProt_ID', "sequence", "Membrane", "split"]]
