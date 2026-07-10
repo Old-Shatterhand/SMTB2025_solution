@@ -7,3 +7,5 @@ figures_old/
 lightning_logs/
 logs/
 seq_knn_logs/
+paper_figures/
+*.ipynb

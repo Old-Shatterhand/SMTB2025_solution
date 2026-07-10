@@ -82,11 +82,13 @@ def multioutput_mcc(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     mccs = []
     for i in range(y_true.shape[1]):
         try:
-            mcc = matthews_corrcoef(y_true[:, i], y_pred[:, i] > 0.5)
+            if sum(y_true[:, i]) == 0:
+                mccs.append(0.0)
+            else:
+                mccs.append(matthews_corrcoef(y_true[:, i], y_pred[:, i] > 0.5))
         except ValueError:
             # Handle cases where MCC is undefined (e.g., only one class present)
-            mcc = 0.0
-        mccs.append(mcc)
+            mccs.append(0.0)
     
     return float(np.mean(mccs))
 

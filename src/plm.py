@@ -73,6 +73,7 @@ def run_esm(
     aa_level: bool = False,
     empty: bool = False,
     force: bool = False,
+    from_ft: bool = False,
 ) -> None:
     """
     Run ESM model to extract embeddings for sequences in the given data path.
@@ -84,24 +85,34 @@ def run_esm(
         aa_level: Whether to save amino acid level embeddings or mean pooled embeddings.
         empty: Whether to use an untrained model.
         force: Whether to overwrite existing embeddings.
+        from_ft: Whether to load the model from a fine-tuned checkpoint. Only applicable for ESM2-t30 models and model_name' must be the filepath to the checkpoint.
     """
     data = pd.read_csv(data_path)
     if "positions" in data.columns:
         data["positions"] = data["positions"].apply(eval)
 
+    if from_ft:
+        model_path = Path(model_name)
+        model_name = "facebook/esm2_t30_150M_UR50D"
+
     for i in range(int(model_name.split("_")[1][1:]) + 1):
         (output_path / f"layer_{i}").mkdir(parents=True, exist_ok=True)
 
     tokenizer = AutoTokenizer.from_pretrained(model_name)
-    if not empty:
+    if not empty and not from_ft:
         model = AutoModel.from_pretrained(model_name).to(DEVICE).eval()
     else:
         model = AutoModel.from_config(AutoConfig.from_pretrained(model_name)).to(DEVICE).eval()
+        if from_ft:
+            model.load_state_dict(
+                {k[4:]: v for k, v in torch.load(Path(model_path), map_location=DEVICE).items() if k.startswith("esm.")}
+            )
+            print(f"Loaded model from fine-tuned checkpoint:", str(model_path))
 
     for _, row in tqdm(data.iterrows(), total=len(data), desc="Processing sequences"):
         if not force and (output_path / "layer_0" / f"{row['ID']}.pkl").exists():
             continue
-        inputs = tokenizer(row["sequence"], truncation=True, return_tensors="pt").to(DEVICE)
+        inputs = tokenizer(row["sequence"][:1022], return_tensors="pt").to(DEVICE)
         with torch.no_grad():
             outputs = model(
                 input_ids=torch.tensor(inputs["input_ids"]).reshape(1, -1).to(DEVICE),
@@ -110,9 +121,12 @@ def run_esm(
                 output_hidden_states=True,
             )
             del inputs
-        for i, layer in enumerate(outputs.hidden_states):
-            with open(output_path / f"layer_{i}" / f"{row['ID']}.pkl", "wb") as f:
-                save_embeddings(layer[0, 1:-1].cpu().numpy(), aa_level, f, row.get("positions", None))
+        try:
+            for i, layer in enumerate(outputs.hidden_states):
+                with open(output_path / f"layer_{i}" / f"{row['ID']}.pkl", "wb") as f:
+                    save_embeddings(layer[0, 1:-1].cpu().numpy(), aa_level, f, row.get("positions", None))
+        except:
+            pass
         del outputs
 
 
@@ -313,6 +327,7 @@ def run_progen2(
     aa_level: bool = False, 
     empty: bool = False, 
     force: bool = False,
+    ntp: bool = False
 ) -> None:
     """
     Run ProGen2 model to extract embeddings for sequences in the given data path.
@@ -324,6 +339,7 @@ def run_progen2(
         aa_level: Whether to save amino acid level embeddings or mean pooled embeddings.
         empty: Whether to use an untrained model.
         force: Whether to overwrite existing embeddings.
+        ntp: Whether to run the model for NTP loss evaluation and only store the last token's embedding.
     """
     data = pd.read_csv(data_path)
     if "positions" in data.columns:
@@ -342,20 +358,23 @@ def run_progen2(
     else:
         raise NotImplementedError("Empty ProGen2 model is not implemented.")
 
+    token_slice = -1 if ntp else slice(1, -1)
     for _, row in tqdm(data.iterrows(), total=len(data), desc="Processing sequences"):
         if not force and (output_path / "layer_0" / f"{row['ID']}.pkl").exists():
             continue
-        input_ids = torch.tensor(tokenizer.encode(f"1{row['sequence'][:1022]}2").ids).to(DEVICE)
+        seq = "1" + row['sequence'][:1022] + ("" if ntp else "2")
+        input_ids = torch.tensor(tokenizer.encode(seq).ids).to(DEVICE)
         with torch.no_grad():
             outputs = model(input_ids, output_hidden_states=True)
             del input_ids
+        
         for i, layer in enumerate(outputs.hidden_states[:-1]):
             with open(output_path / f"layer_{i}" / f"{row['ID']}.pkl", "wb") as f:
-                save_embeddings(layer[0, 1:-1].cpu().numpy(), aa_level, f)
+                save_embeddings(layer[0, token_slice].cpu().numpy(), aa_level, f)
 
         # treat last layer differently, because ProGen2 developers are crazy!?
         with open(output_path / f"layer_{LAYERS[model_name]}" / f"{row['ID']}.pkl", "wb") as f:
-            save_embeddings(outputs.hidden_states[-1][1:-1].cpu().numpy(), aa_level, f, row.get("positions", None))
+            save_embeddings(outputs.hidden_states[-1][token_slice].cpu().numpy(), aa_level, f, row.get("positions", None))
 
         del outputs
 
@@ -445,10 +464,23 @@ if __name__ == "__main__":
     parser.add_argument("--output-path", type=Path, required=True)
     parser.add_argument("--aa-level", action="store_true")
     parser.add_argument("--empty", action="store_true")
+    parser.add_argument("--from-ft", action="store_true", help="Whether to load the model from a fine-tuned checkpoint. " \
+        "Only applicable for ESM2-t30 models and '--model-name' must be the filepath to the checkpoint.")
     parser.add_argument("--force", action="store_true", help="Whether to overwrite existing embeddings.")
+    parser.add_argument("--ntp", action="store_true", help="Whether to run the model for NTP loss evaluation and only storing the last token's embedding. This implies --aa-level.")
     args = parser.parse_args()
 
-    print(sys.argv[1:])
+    if args.from_ft:
+        run_esm(
+            model_name=args.model_name,
+            data_path=args.data_path,
+            output_path=args.output_path,
+            aa_level=args.aa_level,
+            empty=True,
+            force=args.force,
+            from_ft=True,
+        )
+        exit(0)
 
     if "esmc" in args.model_name:
         run_esmc(args.model_name, args.data_path, args.output_path, args.aa_level, args.empty, args.force)
@@ -461,7 +493,7 @@ if __name__ == "__main__":
     elif "prostt5" in args.model_name:
         run_prostt5(args.data_path, args.output_path, args.aa_level, args.empty, args.force)
     elif "progen" in args.model_name:
-        run_progen2(args.model_name, args.data_path, args.output_path, args.aa_level, args.empty, args.force)
+        run_progen2(args.model_name, args.data_path, args.output_path, args.aa_level or args.ntp, args.empty, args.force, args.ntp)
     elif "protgpt2" in args.model_name:
         run_protgpt2(args.data_path, args.output_path, args.empty, args.force)
     elif "ohe" in args.model_name:
