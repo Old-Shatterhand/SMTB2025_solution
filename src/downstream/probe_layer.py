@@ -26,7 +26,7 @@ from src.downstream.utils import compute_id_2NN, return_data_overlap
 MAP = {
     2: list("XM"),
     3: list("HEC"),
-    8: list("GHIBETSC"),
+    8: list("GHIBETS-"),
     20: list("ACDEFGHIKLMNPQRSTVWY"),
 }
 
@@ -98,6 +98,7 @@ def build_aa_dataloader(df: pd.DataFrame, embed_path: Path, n_classes: int) -> t
             sequence = row["sequence"]
             # Reasons for exclusion: (i) labels don't have the same length as the sequence (except for amino-acid identity prediction), (ii, amino-acid identity prediction) labels contain unknown residue X
             if not hasattr(tmp_labels, "__len__") or (len(tmp_labels) != len(sequence) and n_classes != 20) or (n_classes == 20 and "X" in tmp_labels):
+                print(f"Skipping {row['ID']} due to label issues: {len(tmp_labels)}|{len(sequence)}")
                 continue
             
             # Need to trim labels because ESM embeddings max length is 1022
@@ -113,7 +114,7 @@ def build_aa_dataloader(df: pd.DataFrame, embed_path: Path, n_classes: int) -> t
             embeddings.append(tmp)
             aa_labels += [CLASS_MAPPING[c] for c in tmp_labels]
         except Exception as e:
-            print(e)
+            print("Exception:", e)
             pass
     embeddings = np.concatenate(embeddings, axis=0)
     return embeddings, np.array(aa_labels), None
