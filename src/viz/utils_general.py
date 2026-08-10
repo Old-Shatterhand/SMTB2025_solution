@@ -6,19 +6,12 @@ from matplotlib import pyplot as plt, transforms
 import scipy
 import numpy as np
 import pandas as pd
-from scipy.stats import spearmanr
-from sklearn.metrics import accuracy_score, mean_absolute_error, mean_squared_error, r2_score, matthews_corrcoef, roc_auc_score
 import torch
 
 from src.viz.constants import MODEL_COLORS, MODEL_MARKERS, MODEL_NAMES, MODELS, SPLIT_ID, LAYERS, DATASET2TASK
-from src.downstream.utils import multioutput_mcc, multiclass_mcc
-
+from src.viz.utils import compute_metric, compute_performance
 
 FINETUNE_LAYERS = [0, 10, 15, 20, 22, 24, 26, 28, 30]
-
-
-
-
 
 def comp_finetune_performance(base, dataset, metric):
     perfs = []

@@ -18,6 +18,7 @@ from cuml import PCA
 from datasail.sail import datasail
 from sklearn.multioutput import MultiOutputClassifier
 from cuml.neighbors import KNeighborsClassifier as kNN_class, KNeighborsRegressor as kNN_reg
+from cuml.random_projection import GaussianRandomProjection as cuGRP
 
 from src.downstream.utils import compute_id_2NN, return_data_overlap
 
@@ -331,11 +332,29 @@ def prepare_dataset(
     return df, labels, val_name, model_suffix, space_suffix
 
 
+def reduce_dims(train_X, val_X, test_X, calcs):
+    reducer = cuGRP(
+        n_components=250,
+        output_type="numpy",
+        random_state=42,
+        verbose=True,
+    ).fit(train_X)
+    train_X = reducer.transform(train_X)
+    if {'knn', 'id', 'no', 'lr'}.intersection(calcs):
+        val_X = reducer.transform(val_X)
+        test_X = reducer.transform(test_X)
+    return train_X, val_X, test_X
+
+
 def main(args):
     start = time()
     print(f"[{datetime.now()}] Starting rolling model computation...")
     dataset = args.data_path.stem
-    base_result_folder = args.embed_base.parent / dataset 
+    base_result_folder = args.embed_base.parent / dataset
+
+    if "lysosomes" in dataset:
+        base_result_folder = args.embed_base.parent / f"{dataset}_grp250"
+    
     (base_result_folder / "layer_0").mkdir(parents=True, exist_ok=True)
 
     # Set seeds
@@ -349,14 +368,18 @@ def main(args):
     calcs = set(args.calcs)
 
     # Load the first layer embeddings
-    print(f"[{time() - start:.2f}s] Loading layer 0 embeddings...")
+    print(f"[{time() - start:.2f}s] Loading layer {args.start_layer} embeddings...")
     curr_train_X, curr_train_y, curr_train_ids = build_dataloader(df[df["split"] == "train"], args.embed_base / f"layer_{args.start_layer}", labels)
     if {'knn', 'id', 'no', 'lr'}.intersection(calcs):
         curr_val_X, curr_val_y, curr_val_ids = build_dataloader(df[df["split"] == val_name], args.embed_base / f"layer_{args.start_layer}", labels)
         curr_test_X, curr_test_y, curr_test_ids = build_dataloader(df[df["split"] == "test"], args.embed_base / f"layer_{args.start_layer}", labels)
 
+    # Reduce dimensions
+    if "lysosomes" in dataset:
+        curr_train_X, curr_val_X, curr_test_X = reduce_dims(curr_train_X, curr_val_X, curr_test_X, calcs)
+
     if {'knn', 'id', 'no'}.intersection(calcs):
-        print(f"[{time() - start:.2f}s] Fitting kNN on layer 0 ...")
+        print(f"[{time() - start:.2f}s] Fitting kNN on layer {args.start_layer} ...")
         curr_distances, curr_dist_indices = knn(
             out_folder=base_result_folder / f"layer_{args.start_layer}", 
             train_X=curr_train_X, 
@@ -375,7 +398,7 @@ def main(args):
         )            
 
     if 'lr' in calcs:
-        print(f"[{time() - start:.2f}s] Training LR on layer 0 ...")
+        print(f"[{time() - start:.2f}s] Training LR on layer {args.start_layer} ...")
         train_lr_head(
             out_folder=base_result_folder / f"layer_{args.start_layer}", 
             train_X=curr_train_X, 
@@ -423,6 +446,10 @@ def main(args):
             next_val_X, next_val_y, next_val_ids = build_dataloader(df[df["split"] == val_name], args.embed_base / f"layer_{layer + 1}", labels)
             next_test_X, next_test_y, next_test_ids = build_dataloader(df[df["split"] == "test"], args.embed_base / f"layer_{layer + 1}", labels)
 
+        # Reduce dimensions
+        if "lysosomes" in dataset:
+            next_train_X, next_val_X, next_test_X = reduce_dims(next_train_X, next_val_X, next_test_X, calcs)
+        
         if {'knn', 'id', 'no'}.intersection(calcs):
             print(f"[{time() - start:.2f}s] Fitting kNN on layer {layer + 1} ...")
             next_distances, next_dist_indices = knn(

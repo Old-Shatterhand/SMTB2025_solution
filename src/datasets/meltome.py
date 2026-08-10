@@ -49,7 +49,7 @@ def process_meltome_atlas(save_path: Path) -> None:
     df["ID"] = [f"P{i:05d}" for i in range(len(df))]
     
     df["split"] = df["species"].apply(lambda x: {"Thermus_thermophilus": "valid", "Geobacillus_stearothermophilus": "valid", "Danio_rerio": "test"}.get(x, "train"))
-    df[["ID", "sequence", "label", "split"]].to_csv("meltome_atlas_spec_split.csv", index=False)
+    df[["ID", "sequence", "label", "split"]].to_csv(save_path / "meltome_atlas_spec_split.csv", index=False)
     print(f"Processed Meltome Atlas w/ cold-species split dataset saved to {save_path / 'meltome_atlas_spec_split.csv'}")
     
     df["split"] = np.random.choice(["train", "test", "valid"], size=len(df), p=[0.7, 0.2, 0.1])

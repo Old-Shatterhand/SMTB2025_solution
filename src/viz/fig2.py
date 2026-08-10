@@ -1,12 +1,46 @@
 from pathlib import Path
+import pickle
 from matplotlib.patches import Rectangle
 import matplotlib.pyplot as plt
 from matplotlib import gridspec
+import numpy as np
 
-from src.viz.constants import DATASET_NAMES
+from src.viz.constants import DATASET_COLORS, DATASET_NAMES
 from src.viz.plot_utils import plot_metric, set_subplot_label, plot_scope_minx_metric
+from src.viz.utils import interpolate_data, XP
 
 BASE = Path("/") / "scratch" / "SCRATCH_SAS" / "roman" / "SMTB"
+
+
+def plot_fig2_grouped(models):
+    fig = plt.figure(figsize=(20, 6))
+    gs = gridspec.GridSpec(1, 3, figure=fig)
+    axs = [fig.add_subplot(gs[i]) for i in range(3)]
+
+    for m, metric in enumerate(["ids", "var@10", "noverlap"]):
+        with open(f"data_{metric}_mcc_pearson.pkl", "rb") as f:
+            data = pickle.load(f)
+        for dataset in ["fluorescence", "gb1", "stability", "meltome_atlas", "tsuboyama", "solubility", "scope_40_208_fold", "deeploc2", "scope_40_208_3ssp", "binding"]:
+            if metric == "noverlap":
+                d_data = interpolate_data([[data[model][dataset][:-1] for model in models]])[0]
+            else:
+                d_data = interpolate_data([[data[model][dataset] for model in models]])[0]
+            mean = np.nanmean(d_data, axis=0)
+            axs[m].plot(XP, mean, label=DATASET_NAMES[dataset], linewidth=5, color=DATASET_COLORS[dataset])
+            # axs[m].fill_between(XP, np.nanmin(d_data, axis=0), np.nanmax(d_data, axis=0), alpha=0.2)
+        axs[m].grid()
+        axs[m].set_ylabel(metric)
+        axs[m].set_xlabel("Relative layer")
+        set_subplot_label(axs[m], fig, label=f"{chr(ord('A') + m)}")
+    axs[0].set_ylim(0, 25)
+
+    handles, labels = axs[0].get_legend_handles_labels()
+    # handles.insert(5, Rectangle((0, 0), 1, 1, fc="w", fill=False, edgecolor='none', linewidth=0))  #plt.Line2D([0], [0], color="black", lw=0, label="OHE"))
+    # labels.insert(5, "")
+    fig.legend(handles, labels, loc="lower center", bbox_to_anchor=(0.5, 0.0), bbox_transform=fig.transFigure, ncol=5)  # -0.08
+
+    plt.tight_layout(rect=[0, 0.085, 1, 1])
+    plt.savefig("paper_figures/fig_2_layer_metrics.pdf", dpi=300, bbox_inches="tight")
 
 
 def plot_fig2(models):
@@ -21,10 +55,10 @@ def plot_fig2(models):
 
     for m, metric in enumerate(["ids", "noverlap", "var@10"]):
         for d, dataset in enumerate(["fluorescence", "stability", "deeploc2"]):
-            plot_metric(axs[m][d], BASE, dataset, model_prefix="", metric=metric, models=models, relative=True)
+            plot_metric(axs[m][d], BASE, dataset, model_prefix="", metric=metric, models=models, relative=True, grouped=True)
             if m != 2:
                 axs[m][3].set_xlabel("")
-        plot_scope_minx_metric(axs[m][3], BASE, metric, "fold", model_prefix="", models=models, relative=True)
+        plot_scope_minx_metric(axs[m][3], BASE, metric, "fold", model_prefix="", models=models, relative=True, grouped=True)
 
     for d, dataset in enumerate(["Fluorescence", "Stability", "DeepLoc2", "SCOPe40 2.08 Protein Level"]):
         axs[0][d].set_title(dataset)
@@ -43,7 +77,7 @@ def plot_fig2(models):
     fig.legend(handles, labels, loc="lower center", bbox_to_anchor=(0.5, 0.02), bbox_transform=fig.transFigure, ncol=(len(models) + 1) // 2)  # -0.08
 
     plt.tight_layout(rect=[0, 0.075, 1, 1])
-    plt.savefig("paper_figures/2_layer_metrics.pdf", dpi=300, bbox_inches="tight")
+    plt.savefig("paper_figures/fig_2_layer_metrics.pdf", dpi=300, bbox_inches="tight")
 
 
 def plot_full_fig2():

@@ -1,6 +1,7 @@
 from pathlib import Path
 import argparse
 
+import numpy as np
 import pandas as pd
 
 
@@ -53,15 +54,16 @@ def to_classification(save_path: Path) -> None:
 
     df["label"] = df["label"].apply(label_to_class)
     df_classification = df[df["label"] != -1][["ID", "sequence", "label", "split"]]
+    df_classification["split"] = np.random.choice(["train", "valid", "test"], size=len(df_classification), p=[0.7, 0.2, 0.1])
     
-    df_classification.to_csv(save_path / "fluorescence_classification.csv", index=False)
-    print(f"Fluorescence classification dataset saved to {save_path}/fluorescence_classification.csv")
+    df_classification.to_csv(save_path / "fluorescence_bin.csv", index=False)
+    print(f"Fluorescence classification dataset saved to {save_path}/fluorescence_bin.csv")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--save-path", type=Path, required=True, help="Path to save the processed dataset")
-    parser.add_argument("--class", action="store_true", dest="class_", help="Convert to classification dataset")
+    parser.add_argument("--bin", action="store_true", dest="class_", help="Convert to classification dataset")
     args = parser.parse_args()
 
     if args.class_:

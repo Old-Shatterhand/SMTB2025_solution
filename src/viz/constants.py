@@ -9,7 +9,7 @@ SPLIT = "valid"
 SPLIT_ID = {"train": 0, "valid": 1, "test": 2}[SPLIT]
 
 MODELS = ["esm_t6", "esm_t12", "esm_t30", "esm_t33", "esm_t36", "esmc_300m", "esmc_600m", "ankh_base", "ankh_large", "prostt5", "prott5", "progen2_small", "progen2_medium", "progen2_large", "protgpt2"]
-WP_DATASETS = ["fluorescence", "fluorescence_classification", "stability", "deeploc2", "deeploc2_bin", "meltome_atlas", "meltome_atlas_species", "scope_40_208", "solubility", "gb1"]
+WP_DATASETS = ["fluorescence", "fluorescence_classification", "stability", "deeploc2", "deeploc2_bin", "meltome_atlas", "meltome_atlas_species", "scope_40_208", "solubility", "gb1", "lysosomes", "lysosomes_natural", "tsuboyama"]
 AA_DATASETS = ["binding", "scope_40_208"]
 DATASETS = WP_DATASETS + AA_DATASETS
 
@@ -95,6 +95,27 @@ MODEL_NAMES = {
     "ohe": "OHE",
 }
 
+DATASET_COLORS = {
+    "fluorescence": "#2ca02c",
+    "fluorescence_classification": "#2ca02c",
+    "gb1": "#98df8a",
+    "gb1_sampled": "#98df8a",
+    "stability": "#ff7f0e",
+    "tsuboyama": "#d62728",
+    "meltome_atlas": "#ff9896",
+    "scope_40_208": "#1f77b4",
+    "scope_40_208_fold": "#1f77b4",
+    "scope_40_208_superfamily": "#1f77b4",
+    "scope_40_208_3ssp": "#9467bd",
+    "scope_40_208_8ssp": "#9467bd",
+    "deeploc2": "#17becf",
+    "deeploc2_bin": "#17becf",
+    "solubility": "#bcbd22",
+    "binding": "#e377c2",
+    "lysosomes": "#000000",
+    "lysosomes_natural": "#000000",
+}
+
 DATASET_NAMES = {
     "fluorescence_classification": "Fluorescence Binary",
     "fluorescence": "Fluorescence Regression",
@@ -110,6 +131,9 @@ DATASET_NAMES = {
     "binding": "Binding",
     "solubility": "DeepSol",
     "gb1": "GB1",
+    "lysosomes": "Artificial Lysosomes",
+    "lysosomes_natural": "Lysosomes Natural",
+    "tsuboyama": "Tsuboyama Stability DMS",
 }
 
 DATASET2TASK: dict[str, Literal["regression", "binary", "multi-label", "multi-class"]] = {
@@ -129,6 +153,9 @@ DATASET2TASK: dict[str, Literal["regression", "binary", "multi-label", "multi-cl
     "stability": "regression",
     "solubility": "binary",
     "gb1": "regression",
+    "lysosomes": "regression",
+    "lysosomes_natural": "regression",
+    "tsuboyama": "regression",
 }
 
 TASK_METRICS = {

@@ -45,6 +45,8 @@ AA_OHE = {
     "Y": 19,
 }
 
+HF_MODEL_CACHE = "/scratch/SCRATCH_SAS/roman/cache_huggingface/hub"
+
 
 def save_embeddings(embeddings: np.ndarray, aa_level: bool, fp, positions: list | None = None) -> None:
     """
@@ -98,11 +100,11 @@ def run_esm(
     for i in range(int(model_name.split("_")[1][1:]) + 1):
         (output_path / f"layer_{i}").mkdir(parents=True, exist_ok=True)
 
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    tokenizer = AutoTokenizer.from_pretrained(model_name, cache_dir=HF_MODEL_CACHE)
     if not empty and not from_ft:
-        model = AutoModel.from_pretrained(model_name).to(DEVICE).eval()
+        model = AutoModel.from_pretrained(model_name, cache_dir=HF_MODEL_CACHE).to(DEVICE).eval()
     else:
-        model = AutoModel.from_config(AutoConfig.from_pretrained(model_name)).to(DEVICE).eval()
+        model = AutoModel.from_config(AutoConfig.from_pretrained(model_name, cache_dir=HF_MODEL_CACHE)).to(DEVICE).eval()
         if from_ft:
             model.load_state_dict(
                 {k[4:]: v for k, v in torch.load(Path(model_path), map_location=DEVICE).items() if k.startswith("esm.")}
@@ -204,11 +206,11 @@ def run_ankh(
     for i in range(49):
         (output_path / f"layer_{i}").mkdir(parents=True, exist_ok=True)
 
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    tokenizer = AutoTokenizer.from_pretrained(model_name, cache_dir=HF_MODEL_CACHE)
     if not empty:
-        model = AutoModel.from_pretrained(model_name).to(DEVICE).eval()
+        model = AutoModel.from_pretrained(model_name, cache_dir=HF_MODEL_CACHE).to(DEVICE).eval()
     else:
-        model = AutoModel.from_config(AutoConfig.from_pretrained(model_name)).to(DEVICE).eval()
+        model = AutoModel.from_config(AutoConfig.from_pretrained(model_name, cache_dir=HF_MODEL_CACHE)).to(DEVICE).eval()
 
     for _, row in tqdm(data.iterrows(), total=len(data), desc="Processing sequences"):
         if not force and (output_path / "layer_0" / f"{row['ID']}.pkl").exists():
@@ -248,11 +250,11 @@ def run_prostt5(
     for i in range(25):
         (output_path / f"layer_{i}").mkdir(parents=True, exist_ok=True)
 
-    tokenizer = T5Tokenizer.from_pretrained(PLM_MODELS["prostt5"])
+    tokenizer = T5Tokenizer.from_pretrained(PLM_MODELS["prostt5"], cache_dir=HF_MODEL_CACHE)
     if not empty:
-        model = AutoModel.from_pretrained(PLM_MODELS["prostt5"]).to(DEVICE).eval()
+        model = AutoModel.from_pretrained(PLM_MODELS["prostt5"], cache_dir=HF_MODEL_CACHE).to(DEVICE).eval()
     else:
-        model = AutoModel.from_config(AutoConfig.from_pretrained(PLM_MODELS["prostt5"])).to(DEVICE).eval()
+        model = AutoModel.from_config(AutoConfig.from_pretrained(PLM_MODELS["prostt5"], cache_dir=HF_MODEL_CACHE)).to(DEVICE).eval()
 
     for _, row in tqdm(data.iterrows(), total=len(data), desc="Processing sequences"):
         if not force and (output_path / "layer_0" / f"{row['ID']}.pkl").exists():
@@ -296,11 +298,11 @@ def run_prott5(
     for i in range(25):
         (output_path / f"layer_{i}").mkdir(parents=True, exist_ok=True)
 
-    tokenizer = T5Tokenizer.from_pretrained(PLM_MODELS["prott5"])
+    tokenizer = T5Tokenizer.from_pretrained(PLM_MODELS["prott5"], cache_dir=HF_MODEL_CACHE)
     if not empty:
-        model = AutoModel.from_pretrained(PLM_MODELS["prott5"]).to(DEVICE).eval()
+        model = AutoModel.from_pretrained(PLM_MODELS["prott5"], cache_dir=HF_MODEL_CACHE).to(DEVICE).eval()
     else:
-        model = AutoModel.from_config(AutoConfig.from_pretrained(PLM_MODELS["prott5"])).to(DEVICE).eval()
+        model = AutoModel.from_config(AutoConfig.from_pretrained(PLM_MODELS["prott5"], cache_dir=HF_MODEL_CACHE)).to(DEVICE).eval()
 
     for _, row in tqdm(data.iterrows(), total=len(data), desc="Processing sequences"):
         if not force and (output_path / "layer_0" / f"{row['ID']}.pkl").exists():
@@ -352,7 +354,7 @@ def run_progen2(
     if not empty:
         model = (
             AutoModelForCausalLM.from_pretrained(
-                PLM_MODELS[model_name], trust_remote_code=True  # , cache_dir="/home/s8rojoer/.cache/huggingface/"
+                PLM_MODELS[model_name], trust_remote_code=True, cache_dir=HF_MODEL_CACHE,
             ).to(DEVICE).eval()
         )
     else:
@@ -400,9 +402,9 @@ def run_protgpt2(
     for i in range(37):
         (output_path / f"layer_{i}").mkdir(parents=True, exist_ok=True)
 
-    tokenizer = AutoTokenizer.from_pretrained("nferruz/ProtGPT2", trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained("nferruz/ProtGPT2", trust_remote_code=True, cache_dir=HF_MODEL_CACHE)
     if not empty:
-        model = AutoModelForCausalLM.from_pretrained("nferruz/ProtGPT2", trust_remote_code=True).to(DEVICE).eval()
+        model = AutoModelForCausalLM.from_pretrained("nferruz/ProtGPT2", trust_remote_code=True, cache_dir=HF_MODEL_CACHE).to(DEVICE).eval()
     else:
         raise NotImplementedError("Empty ProtGPT2 model is not implemented.")
 

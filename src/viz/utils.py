@@ -11,6 +11,8 @@ import torch
 
 from src.viz.constants import SPLIT_ID
 
+XP = np.linspace(0, 1, 1000)
+
 
 def multioutput_mcc(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     """
@@ -45,7 +47,7 @@ def multioutput_mcc(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     return float(np.mean(mccs))
 
 
-def compute_metric(y_hat: np.ndarray, y: np.ndarray, metric: str, task: Literal["regression", "binary", "multi-label", "multi-class"]) -> float:
+def compute_metric(y_hat: np.ndarray, y: np.ndarray, metric: str, task: Literal["regression", "binary", "multi-label", "multi-class"], classes: list[int | str] | None = None, no_mean: bool = False) -> float | tuple[list[float], list[int], list]:
     """
     Compute a performance metric between predictions and true labels.
 
@@ -58,11 +60,37 @@ def compute_metric(y_hat: np.ndarray, y: np.ndarray, metric: str, task: Literal[
     Returns:
         The computed performance metric.
     """
+    if metric.startswith("macro") and classes is None:
+        print(f"Warning: macro metric \"{metric}\" specified but no classes provided. Defaulting to normal metric \"{metric.split('-')[1]}\" computation.")
+        metric = metric.split("-")[1]
+
     match metric.lower():
         case "pearson":
             return np.corrcoef(y_hat, y)[0, 1]
         case "spearman":
             return spearmanr(y_hat, y)[0] # type: ignore
+        case "macro-pearson":
+            classes = np.array(classes)
+            mccs, weights = [], []
+            clss = list(sorted(set(classes)))
+            for cls in clss:
+                idx = classes == cls
+                weights.append(sum(idx))
+                mccs.append(np.corrcoef(y_hat[idx], y[idx])[0, 1])
+            if no_mean:
+                return mccs, weights, clss
+            return float(np.average(mccs, weights=weights))
+        case "macro-spearman":
+            classes = np.array(classes)
+            mccs, weights = [], []
+            clss = list(sorted(set(classes)))
+            for cls in clss:
+                idx = classes == cls
+                weights.append(sum(idx))
+                mccs.append(spearmanr(y_hat[idx], y[idx])[0]) # type: ignore
+            if no_mean:
+                return mccs, weights, clss
+            return float(np.average(mccs, weights=weights))
         case "r2":
             return r2_score(y, y_hat)
         case "mse":
@@ -120,7 +148,9 @@ def compute_performance(
         task: Literal["regression", "binary", "multi-label", "multi-class"] = "regression",
         aa: bool = False, 
         n_classes: int = 42,
-    ) -> float:
+        id_cls_map: dict[int, int | str] | None = None,
+        no_mean: bool = False,
+    ) -> float | tuple[list[float], list[int], list]:
     """
     Compute a performance metric for the given model, dataset, layer, and algorithm.
 
@@ -152,11 +182,19 @@ def compute_performance(
             return np.nan
         
         with open(filepath, "rb") as f:
-            y_hat, y = pd.read_pickle(f)[SPLIT_ID]
-            y_hat = np.array(y_hat)
-            y = np.array(y)
-        
-        return compute_metric(y_hat, y, metric, task)
+            info = pickle.load(f)[SPLIT_ID]
+        if len(info) == 2:
+            y_hat, y = info
+            ids = None
+        else:
+            y_hat, y, ids = info
+        y_hat = np.array(y_hat)
+        y = np.array(y)
+
+        if ids is not None and id_cls_map is not None:
+            return compute_metric(y_hat, y, metric, task, classes=[id_cls_map[idx] for idx in ids], no_mean=no_mean)
+        else:
+            return compute_metric(y_hat, y, metric, task)
     except Exception as e:
         print(f"Error computing performance for {model} layer {layer} on {dataset} with {algo}: {e}")
         return np.nan
@@ -288,3 +326,107 @@ def read_scope_metric(root: Path, model, layer, metric, filename):
         return 0
     df = pd.read_csv(filepath)
     return df[name_map[metric]].values[0]
+
+
+def interpolate_data(data):
+    interp = []
+    for ds in data:
+        tmp = []
+        for y in ds:
+            x = np.arange(0, 1 + 1e-5, 1 / (len(y) - 1))
+            yp = np.interp(XP, x, y)
+            tmp.append(yp)
+        interp.append(tmp)
+    return np.array(interp)
+
+
+def normalize(arr, axis=None, feature_range=(0, 1), constant_value=0.5):
+    """
+    Normalize a numpy array along a specified axis to a given range.
+
+    Handles the degenerate case where min == max along the axis (i.e. the
+    slice is constant) by filling those positions with `constant_value`
+    instead of producing NaN or Inf.
+
+    Parameters
+    ----------
+    arr : array_like
+        Input array to normalize.
+    axis : int, tuple of int, or None, optional
+        Axis or axes along which to compute min/max for normalization.
+        If None, normalizes over the flattened array (default).
+    feature_range : tuple (min, max), optional
+        Desired range of transformed data. Default is (0, 1).
+    constant_value : float, optional
+        Value to use where min == max along the axis (avoids division
+        by zero). This value is placed in the *output* range, so it
+        should typically lie within `feature_range`. Default is 0.5
+        (midpoint of the default (0, 1) range).
+
+    Returns
+    -------
+    np.ndarray
+        Normalized array, same shape as input, dtype float.
+
+    Examples
+    --------
+    >>> normalize(np.array([1, 2, 3, 4]))
+    array([0.        , 0.33333333, 0.66666667, 1.        ])
+
+    >>> normalize(np.array([5, 5, 5]))
+    array([0.5, 0.5, 0.5])
+
+    >>> a = np.array([[1, 2, 3], [4, 4, 4]])
+    >>> normalize(a, axis=1)
+    array([[0. , 0.5, 1. ],
+           [0.5, 0.5, 0.5]])
+    """
+    # arr = np.asarray(arr, dtype=np.float64)
+    tmp = np.nanmean(np.asarray(arr, dtype=np.float64), axis=1, keepdims=True)
+    lo, hi = feature_range
+
+    if lo >= hi:
+        raise ValueError(f"feature_range must satisfy min < max, got {feature_range}")
+
+    # arr_min = np.nanmin(arr, axis=axis, keepdims=True)
+    # arr_max = np.nanmax(arr, axis=axis, keepdims=True)
+    arr_min = np.nanmin(tmp, axis=axis, keepdims=True)
+    arr_max = np.nanmax(tmp, axis=axis, keepdims=True)
+    span = arr_max - arr_min
+
+    # Avoid division by zero: wherever span == 0, substitute 1 as a
+    # placeholder divisor (the result there gets overwritten anyway).
+    safe_span = np.where(span == 0, 1, span)
+
+    normalized = (arr - arr_min) / safe_span          # in [0, 1]
+    normalized = normalized * (hi - lo) + lo           # scaled to feature_range
+
+    # Broadcast the constant-slice mask back to arr's shape and fill it in.
+    # constant_mask = np.broadcast_to(span == 0, arr.shape)
+    # normalized = np.where(constant_mask, constant_value, normalized)
+
+    return normalized
+
+
+def minmax_normalize_list(arr_list):
+    """
+    Min-max normalize a list of numpy arrays using the global min/max
+    across all arrays (not per-array).
+
+    Parameters
+    ----------
+    arr_list : list of np.ndarray
+
+    Returns
+    -------
+    list of np.ndarray, each scaled to [0, 1]
+    """
+    global_min = min(arr.min() for arr in arr_list)
+    global_max = max(arr.max() for arr in arr_list)
+
+    range_ = global_max - global_min
+    if range_ == 0:
+        # avoid division by zero if all values are identical
+        return [np.zeros_like(arr, dtype=float) for arr in arr_list]
+
+    return [(arr - global_min) / range_ for arr in arr_list]

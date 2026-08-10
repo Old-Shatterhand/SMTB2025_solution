@@ -4,7 +4,7 @@ from typing import Literal
 from matplotlib import pyplot as plt, transforms
 import numpy as np
 
-from src.viz.utils import compute_performance, compute_scope_performance, read_metric, read_pca_metric, read_scope_metric
+from src.viz.utils import compute_performance, compute_scope_performance, interpolate_data, read_metric, read_pca_metric, read_scope_metric
 from src.viz.constants import LAYERS, MODEL_COLORS, MODEL_MARKERS, MODEL_NAMES, MODELS
 
 
@@ -72,6 +72,7 @@ def plot_metric(
         models: list[str] = MODELS,
         colored: bool | str = True,
         title: str | bool | None = None,
+        grouped: bool = False,
     ) -> None:
     """
     Plot a specific metric for different models on a given axis.
@@ -91,6 +92,7 @@ def plot_metric(
         title: Optional title for the plot. Can be a string, boolean, or None.
     """
     title_map = {"ids": "Intrinsic Dimensions", "density": "Density", "noverlap": "Neighbor Overlap", "noverlap_50": "Neighbor Overlap (50)"}
+    all_perfs = []
     for model in models:
         # if metric == "5dvol" and model.startswith("ankh"):
         #     continue  # ankh is crazy in this metric
@@ -105,25 +107,43 @@ def plot_metric(
             perfs.append(result)
         if sum([abs(p) for p in perfs]) == 0:  # drop performances that are 0 throughout
             continue
-        if relative:
-            x_ticks = np.arange(0, 1 + 1e-5, 1 / LAYERS[model])
-            if metric.startswith("noverlap"):
-                x_ticks = x_ticks[:-1]
-                x_ticks += 1 / (2 * LAYERS[model])
-            ax.plot(
-                x_ticks, 
-                perfs, 
-                label=model_prefix + MODEL_NAMES.get(model, model), 
-                c=MODEL_COLORS.get(model, None) if colored == True else colored, 
-                marker=MODEL_MARKERS.get(model, None)
-            )
-        else:
-            ax.plot(
-                perfs, 
-                label=model_prefix + MODEL_NAMES.get(model, model), 
-                c=MODEL_COLORS.get(model, None) if colored == True else colored, 
-                marker=MODEL_MARKERS.get(model, None)
-            )
+        all_perfs.append(perfs)
+        if not grouped:
+            if relative:
+                x_ticks = np.arange(0, 1 + 1e-5, 1 / LAYERS[model])
+                if metric.startswith("noverlap"):
+                    x_ticks = x_ticks[:-1]
+                    x_ticks += 1 / (2 * LAYERS[model])
+                ax.plot(
+                    x_ticks, 
+                    perfs, 
+                    label=model_prefix + MODEL_NAMES.get(model, model), 
+                    c=MODEL_COLORS.get(model, None) if colored == True else colored, 
+                    marker=MODEL_MARKERS.get(model, None)
+                )
+            else:
+                ax.plot(
+                    perfs, 
+                    label=model_prefix + MODEL_NAMES.get(model, model), 
+                    c=MODEL_COLORS.get(model, None) if colored == True else colored, 
+                    marker=MODEL_MARKERS.get(model, None)
+                )
+    if grouped:
+        interp_perfs = interpolate_data([all_perfs])[0]
+        ax.plot(
+            np.linspace(0, 1, 1000), 
+            np.nanmean(interp_perfs, axis=0), 
+            label=model_prefix + MODEL_NAMES.get(model, model), 
+            # c=MODEL_COLORS.get(model, None) if colored == True else colored, 
+            # marker=MODEL_MARKERS.get(model, None)
+        )
+        ax.fill_between(
+            np.linspace(0, 1, 1000), 
+            np.nanmin(interp_perfs, axis=0), 
+            np.nanmax(interp_perfs, axis=0), 
+            alpha=0.2, 
+            # color=MODEL_COLORS.get(model, None) if colored == True else colored
+        )
 
 
 def plot_scope_minx_performance(
@@ -172,7 +192,9 @@ def plot_scope_minx_metric(
         model_prefix: str = "", 
         relative: bool = True, 
         models: list[str] = MODELS,
+        grouped: bool = False,
     ):
+    all_perfs = []
     for model in models:
         perfs = []
         for layer in range(LAYERS[model] + 1):
@@ -183,17 +205,36 @@ def plot_scope_minx_metric(
             else:
                 result = read_scope_metric(root, model_prefix + model, layer, metric, f"{metric}_{level}_min10.csv")
             perfs.append(result)
-        if relative:
-            x_ticks = np.arange(0, 1 + 1e-5, 1 / (LAYERS[model]))
-            if metric.startswith("noverlap"):
-                x_ticks = x_ticks[:-1]
-                x_ticks += 1 / (2 * LAYERS[model])
-            ax.plot(x_ticks, perfs, label=model_prefix + MODEL_NAMES.get(model, model), color=MODEL_COLORS.get(model, None), marker=MODEL_MARKERS.get(model, None))
-        else:
-            ax.plot(perfs, label=model_prefix + MODEL_NAMES.get(model, model), color=MODEL_COLORS.get(model, None), marker=MODEL_MARKERS.get(model, None))
+        all_perfs.append(perfs)
+        if not grouped:
+            if relative:
+                x_ticks = np.arange(0, 1 + 1e-5, 1 / (LAYERS[model]))
+                if metric.startswith("noverlap"):
+                    x_ticks = x_ticks[:-1]
+                    x_ticks += 1 / (2 * LAYERS[model])
+                ax.plot(x_ticks, perfs, label=model_prefix + MODEL_NAMES.get(model, model), color=MODEL_COLORS.get(model, None), marker=MODEL_MARKERS.get(model, None))
+            else:
+                ax.plot(perfs, label=model_prefix + MODEL_NAMES.get(model, model), color=MODEL_COLORS.get(model, None), marker=MODEL_MARKERS.get(model, None))
     
     if metric == "5dvol":
         ax.set_yscale("log")
+
+    if grouped:
+        interp_perfs = interpolate_data([all_perfs])[0]
+        ax.plot(
+            np.linspace(0, 1, 1000), 
+            np.nanmean(interp_perfs, axis=0), 
+            label=model_prefix + MODEL_NAMES.get(model, model), 
+            c=MODEL_COLORS.get(model, None), 
+            marker=MODEL_MARKERS.get(model, None)
+        )
+        ax.fill_between(
+            np.linspace(0, 1, 1000), 
+            np.nanmin(interp_perfs, axis=0), 
+            np.nanmax(interp_perfs, axis=0), 
+            alpha=0.2, 
+            color=MODEL_COLORS.get(model, None)
+        )
 
 
 def set_subplot_label(ax: plt.Axes, fig: plt.Figure, label: str) -> None:

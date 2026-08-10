@@ -26,13 +26,14 @@ def fetch(cmd):
 cmds = []
 for model in ["esm_t6", "esm_t12", "esm_t30", "esm_t33", "esm_t36", "esmc_300m", "esmc_600m", "ankh_base", "ankh_large", "prott5", "prostt5", "progen2_small", "progen2_medium", "progen2_large", "protgpt2"]:
     for layer in range(LAYERS[model] + 1):
-        for dataset in ["gb1"]:  # {"deeploc2", "deeploc2_bin", "fluorescence", "fluorescence_classification", "meltome_atlas", "stability"}:
+        for dataset in ["tsuboyama"]:  # {"deeploc2", "deeploc2_bin", "fluorescence", "fluorescence_classification", "meltome_atlas", "stability"}:
+            if model in {"esm_t6", "esm_t12", "esm_t30"}: ##
+                continue ##
             stumb = f"embeddings/{model}/{dataset}/layer_{layer}"
             (BASE / stumb).mkdir(parents=True, exist_ok=True)
             cmds.append(scp(stumb + f"/ids.csv", stumb))
             if layer != LAYERS[model]:
                 cmds.append(scp(stumb + f"/noverlap.csv", stumb))
-            # if dataset in {"fluorscence", "meltome_atlas", "stability"}:
             cmds.append(scp(stumb + f"/predictions_lr.pkl", stumb))
             cmds.append(scp(stumb + f"/predictions_knn.pkl", stumb))
             cmds.append(scp(stumb + f"/pca.pkl", stumb))
@@ -52,18 +53,18 @@ for model in ["esm_t6", "esm_t12", "esm_t30", "esm_t33", "esm_t36", "esmc_300m",
         #     (BASE / stumb).mkdir(parents=True, exist_ok=True)
         #     cmds.append(scp(stumb + f"/ids.csv", stumb))
         #     cmds.append(scp(stumb + f"/noverlap.csv", stumb))
-        #     cmds.append(scp(stumb + f"/predictions_lr_2.pkl", stumb + f"/predictions_lr.pkl"))
-        #     cmds.append(scp(stumb + f"/predictions_knn_2.pkl", stumb + f"/predictions_knn.pkl"))
+        #     # cmds.append(scp(stumb + f"/predictions_lr_2.pkl", stumb + f"/predictions_lr.pkl"))
+        #     # cmds.append(scp(stumb + f"/predictions_knn_2.pkl", stumb + f"/predictions_knn.pkl"))
         #     cmds.append(scp(stumb + f"/pca.pkl", stumb))
 
         #     stumb_scope = f"aa_embeddings/{model}/scope_40_208/layer_{layer}"
         #     (BASE / stumb_scope).mkdir(parents=True, exist_ok=True)
-        #     # cmds.append(scp(stumb_scope + f"/noverlap.csv", stumb_scope))
-        #     # cmds.append(scp(stumb_scope + f"/ids.csv", stumb_scope))
-        #     # cmds.append(scp(stumb_scope + f"/pca.pkl", stumb_scope))
-        #     for classes in [3, 8]:
-        #         cmds.append(scp(stumb_scope + f"/predictions_lr_{classes}.pkl", stumb_scope))
-        #         cmds.append(scp(stumb_scope + f"/predictions_knn_{classes}.pkl", stumb_scope))
+        #     cmds.append(scp(stumb_scope + f"/noverlap.csv", stumb_scope))
+        #     cmds.append(scp(stumb_scope + f"/ids.csv", stumb_scope))
+        #     cmds.append(scp(stumb_scope + f"/pca.pkl", stumb_scope))
+        #     # for classes in [3, 8]:
+        #     #     cmds.append(scp(stumb_scope + f"/predictions_lr_{classes}.pkl", stumb_scope))
+        #     #     cmds.append(scp(stumb_scope + f"/predictions_knn_{classes}.pkl", stumb_scope))
 
 
 cmds = list(sorted(filter(lambda c: c != "", cmds)))
