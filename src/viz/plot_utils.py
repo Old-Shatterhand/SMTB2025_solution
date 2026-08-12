@@ -73,6 +73,7 @@ def plot_metric(
         colored: bool | str = True,
         title: str | bool | None = None,
         grouped: bool = False,
+        data: dict | None = None,
     ) -> None:
     """
     Plot a specific metric for different models on a given axis.
@@ -96,16 +97,23 @@ def plot_metric(
     for model in models:
         # if metric == "5dvol" and model.startswith("ankh"):
         #     continue  # ankh is crazy in this metric
-        perfs = []
-        for layer in range(LAYERS[model] + 1):
-            if metric.startswith("noverlap") and layer == LAYERS[model]:
+        if data is None:
+            perfs = []
+            for layer in range(LAYERS[model] + 1):
+                if metric.startswith("noverlap") and layer == LAYERS[model]:
+                    continue
+                if metric in {"zero", "pc@95", "var@10", "5dvol"}:
+                    result = read_pca_metric(root, model_prefix + model, dataset, layer, metric=metric, aa=aa)
+                else:
+                    result = read_metric(root, model_prefix + model, dataset, layer, metric=metric, aa=aa)
+                perfs.append(result)
+            if sum([abs(p) for p in perfs]) == 0:  # drop performances that are 0 throughout
                 continue
-            if metric in {"zero", "pc@95", "var@10", "5dvol"}:
-                result = read_pca_metric(root, model_prefix + model, dataset, layer, metric=metric, aa=aa)
-            else:
-                result = read_metric(root, model_prefix + model, dataset, layer, metric=metric, aa=aa)
-            perfs.append(result)
-        if sum([abs(p) for p in perfs]) == 0:  # drop performances that are 0 throughout
+        else:
+            if dataset == "scope_40_208" and aa:
+                dataset = "scope_40_208_3ssp"
+            perfs = data[model][dataset]
+        if sum(perfs) < 2:
             continue
         all_perfs.append(perfs)
         if not grouped:
@@ -114,6 +122,7 @@ def plot_metric(
                 if metric.startswith("noverlap"):
                     x_ticks = x_ticks[:-1]
                     x_ticks += 1 / (2 * LAYERS[model])
+                    perfs = perfs[:LAYERS[model]]
                 ax.plot(
                     x_ticks, 
                     perfs, 
@@ -193,18 +202,24 @@ def plot_scope_minx_metric(
         relative: bool = True, 
         models: list[str] = MODELS,
         grouped: bool = False,
+        data: dict | None = None,
     ):
     all_perfs = []
     for model in models:
-        perfs = []
-        for layer in range(LAYERS[model] + 1):
-            if metric.startswith("noverlap") and layer == LAYERS[model]:
-                continue
-            if metric in {"zero", "pc@95", "var@10", "5dvol"}:
-                result = read_pca_metric(root, model_prefix + model, "scope_40_208", layer, metric, f"pca_{level}_min10.pkl")
-            else:
-                result = read_scope_metric(root, model_prefix + model, layer, metric, f"{metric}_{level}_min10.csv")
-            perfs.append(result)
+        if data is None:
+            perfs = []
+            for layer in range(LAYERS[model] + 1):
+                if metric.startswith("noverlap") and layer == LAYERS[model]:
+                    continue
+                if metric in {"zero", "pc@95", "var@10", "5dvol"}:
+                    result = read_pca_metric(root, model_prefix + model, "scope_40_208", layer, metric, f"pca_{level}_min10.pkl")
+                else:
+                    result = read_scope_metric(root, model_prefix + model, layer, metric, f"{metric}_{level}_min10.csv")
+                perfs.append(result)
+        else:
+            perfs = data[model][f"scope_40_208_{level}"]
+        if sum(perfs) < 2:
+            continue
         all_perfs.append(perfs)
         if not grouped:
             if relative:
@@ -212,6 +227,7 @@ def plot_scope_minx_metric(
                 if metric.startswith("noverlap"):
                     x_ticks = x_ticks[:-1]
                     x_ticks += 1 / (2 * LAYERS[model])
+                    perfs = perfs[:LAYERS[model]]
                 ax.plot(x_ticks, perfs, label=model_prefix + MODEL_NAMES.get(model, model), color=MODEL_COLORS.get(model, None), marker=MODEL_MARKERS.get(model, None))
             else:
                 ax.plot(perfs, label=model_prefix + MODEL_NAMES.get(model, model), color=MODEL_COLORS.get(model, None), marker=MODEL_MARKERS.get(model, None))

@@ -1,15 +1,19 @@
+from pathlib import Path
 import pickle
 from typing import Literal
 
 from matplotlib import gridspec, pyplot as plt, lines as mlines
 from matplotlib.colors import LinearSegmentedColormap, ListedColormap, PowerNorm
+from matplotlib.patches import Rectangle
 import numpy as np
 import pandas as pd
 from sklearn.metrics import auc
 
-from src.viz.constants import DATASET_COLORS, DATASET_NAMES, METRIC_TITLES, MODEL_NAMES
-from src.viz.plot_utils import set_subplot_label
+from src.viz.constants import DATASET2TASK, DATASET_COLORS, DATASET_NAMES, METRIC_TITLES, MODEL_NAMES, TASK_METRICS, kill_axis
+from src.viz.plot_utils import plot_performance, plot_scope_minx_performance, set_subplot_label
 from src.viz.utils import interpolate_data, XP
+
+BASE = Path("/") / "scratch" / "SCRATCH_SAS" / "roman" / "SMTB"
 
 
 def scale_data(data):
@@ -94,7 +98,7 @@ def plot_improvement_heatmap(ax, df, models, datasets):
 
 
     # --- Row 2: group labels on a twin axis pushed further down ---
-    fine_labels  = ["Binary", "Reg.", "", "Species", "Tm", "Rocklin", "Tsuboyama", "", "Binary", "10-class", "Fold", "Superf.", "3c SSP", "8c SSP", ""]
+    fine_labels  = ["bin.", "reg.", "", "Species", r"$T_\text{m}$", "Rocklin", "Tsuboyama", "", "binary", "10-class", "fold", "superf.", "3c SSP", "8c SSP", ""]
     group_labels = ['Fluorescence', "GB1", 'Meltome A.', 'Stability', "DeepSol", 'DeepLoc2.0', 'SCOPe40', 'Binding']
     group_sizes  = [2, 1, 2, 2, 1, 2, 4, 1]   # ← only change needed for different groupings
 
@@ -213,9 +217,102 @@ def plot_fig1(models: list[str], algo: Literal["lr", "knn"], class_metric: str =
     for i in range(1, 3):
         axs[i].grid()
         axs[i].legend()
-        axs[i].set_xlabel("Relative Layer")
+        axs[i].set_xlabel("Relative layer")
         axs[i].set_ylabel(METRIC_TITLES[class_metric if i == 1 else reg_metric])
         set_subplot_label(axs[i], fig, chr(ord("A") + i))
 
     plt.tight_layout()
     plt.savefig(f"paper_figures/fig_1_{algo}_{class_metric}_{reg_metric}.pdf", dpi=300, bbox_inches="tight")
+
+
+def plot_fig1_smtb(models: list[str], algo: Literal["lr", "knn"], class_metric: str = "mcc", reg_metric: str = "pearson"):
+    fig = plt.figure(figsize=(15, 7))
+    gs = gridspec.GridSpec(1, 2, figure=fig)
+    axs = [
+        fig.add_subplot(gs[0]), fig.add_subplot(gs[1])
+    ]
+
+    with open(f"data_{algo}_{class_metric}_{reg_metric}.pkl", "rb") as f:
+        metrics = pickle.load(f)
+
+    class_data = scale_data(interpolate_data([[metrics[model][dataset] for model in models] for dataset in ["solubility", "scope_40_208_fold", "deeploc2", "scope_40_208_3ssp", "binding"]]))
+    reg_data = scale_data(interpolate_data([[metrics[model][dataset] for model in models] for dataset in ["fluorescence", "gb1", "stability", "meltome_atlas", "tsuboyama"]]))
+
+    for d, dataset in enumerate(["solubility", "scope_40_208_fold", "deeploc2", "scope_40_208_3ssp", "binding"]):
+        mean = np.nanmean(class_data[d], axis=0)
+        axs[0].plot(XP, mean, label=DATASET_NAMES[dataset], linewidth=5, color=DATASET_COLORS[dataset])
+
+    for d, dataset in enumerate(["fluorescence", "gb1", "stability", "meltome_atlas", "tsuboyama"]):
+        mean = np.nanmean(reg_data[d], axis=0)
+        axs[1].plot(XP, mean, label=DATASET_NAMES[dataset], linewidth=5, color=DATASET_COLORS[dataset])
+
+    for i in range(2):
+        axs[i].grid()
+        axs[i].legend()
+        axs[i].set_xlabel("Relative layer")
+        axs[i].set_ylabel(METRIC_TITLES[class_metric if i == 0 else reg_metric])
+        set_subplot_label(axs[i], fig, chr(ord("A") + i))
+
+    plt.tight_layout()
+    plt.savefig(f"paper_figures/smtb_1.png")
+
+
+def plot_full_fig1_perfs(models: list[str], algo: Literal["knn", "lr"] = "knn", class_metric: str = "mcc", reg_metric: str = "pearson"):
+    # models = ["esm_t6", "esm_t12", "esm_t30", "esm_t33", "esm_t36", "esmc_300m", "esmc_600m", "ankh_base", "ankh_large", "prott5", "prostt5", "progen2_small", "progen2_medium", "progen2_large", "protgpt2"]
+    # fig = plt.figure(figsize=(20, 12))
+    # gs = gridspec.GridSpec(3, 5, figure=fig)
+    # axs = []
+    # for i in range(3):
+    #     axs.append([])
+    #     for j in range(5):
+    #         axs[i].append(fig.add_subplot(gs[i, j]))
+    
+    fig = plt.figure(figsize=(15, 20))
+    gs = gridspec.GridSpec(5, 3, figure=fig)
+    axs = []
+    for i in range(3):
+        axs.append([])
+        for j in range(5):
+            axs[i].append(fig.add_subplot(gs[j, i]))
+    
+    plot_performance(axs[0][0], BASE, "fluorescence_classification", algo, class_metric, task="binary", models=models, relative=True)
+    plot_performance(axs[1][0], BASE, "fluorescence", algo, reg_metric, task="regression", models=models, relative=True)
+    plot_performance(axs[2][0], BASE, "gb1", algo, reg_metric, task="regression", models=models, relative=True)
+    
+    plot_performance(axs[0][1], BASE, "meltome_atlas_species", algo, class_metric, task="multi-class", models=models, relative=True)
+    plot_performance(axs[1][1], BASE, "meltome_atlas", algo, reg_metric, task="regression", models=models, relative=True)
+    plot_performance(axs[2][1], BASE, "stability", algo, reg_metric, task="regression", models=models, relative=True)
+
+    plot_performance(axs[0][2], BASE, "deeploc2_bin", algo, class_metric, task="binary", models=models, relative=True)
+    plot_performance(axs[1][2], BASE, "deeploc2", algo, class_metric, task="multi-label", models=models, relative=True)
+    plot_performance(axs[2][2], BASE, "solubility", algo, class_metric, task="binary", models=models, relative=True)
+
+    plot_scope_minx_performance(axs[0][3], BASE, algo, class_metric, "superfamily", model_prefix="", models=models, relative=True)
+    plot_scope_minx_performance(axs[1][3], BASE, algo, class_metric, "fold", model_prefix="", models=models, relative=True)
+    
+    plot_performance(axs[0][4], BASE, "scope_40_208", "knn", class_metric, relative=True, aa=True, n_classes=3, task="multi-class", models=models)
+    plot_performance(axs[1][4], BASE, "scope_40_208", "knn", class_metric, relative=True, aa=True, n_classes=8, task="multi-class", models=models)
+    plot_performance(axs[2][4], BASE, "binding", algo, class_metric, task="binary", aa=True, n_classes=2, models=models, relative=True)
+
+    for t, name in enumerate(["fluorescence_classification", "fluorescence", "gb1", "meltome_atlas_species", "meltome_atlas", "stability", "deeploc2_bin", "deeploc2", "solubility", "scope_40_208_superfamily", "scope_40_208_fold", "", "scope_40_208_3ssp", "scope_40_208_8ssp", "binding"]):
+        if name == "":
+            kill_axis(axs[t % 3][t // 3])
+            continue
+        set_subplot_label(axs[t % 3][t // 3], fig, chr(ord("A") + t))
+        axs[t % 3][t // 3].set_title(DATASET_NAMES[name])
+        axs[t % 3][t // 3].set_ylabel(METRIC_TITLES[TASK_METRICS[DATASET2TASK[name]]])
+        axs[t % 3][t // 3].grid()
+        # if t % 3 == 2:
+        if t > 11:
+            axs[t % 3][t // 3].set_xlabel("Relative layer")
+        else:
+            axs[t % 3][t // 3].set_xlabel("")
+            axs[t % 3][t // 3].tick_params(axis='x', labelbottom=False, bottom=False)
+
+    handles, labels = axs[0][0].get_legend_handles_labels()
+    handles.insert(5, Rectangle((0, 0), 1, 1, fc="w", fill=False, edgecolor='none', linewidth=0))  #plt.Line2D([0], [0], color="black", lw=0, label="OHE"))
+    labels.insert(5, "")
+    fig.legend(handles, labels, loc="lower center", bbox_to_anchor=(0.5, 0.06), bbox_transform=fig.transFigure, ncol=(len(models) + 1) // 2)  # -0.08
+
+    plt.tight_layout(rect=[0, 0.085, 1, 1])
+    plt.savefig("paper_figures/full_1_improvement_layer_p.pdf", dpi=300, bbox_inches="tight")

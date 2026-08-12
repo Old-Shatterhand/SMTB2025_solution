@@ -117,23 +117,23 @@ DATASET_COLORS = {
 }
 
 DATASET_NAMES = {
-    "fluorescence_classification": "Fluorescence Binary",
-    "fluorescence": "Fluorescence Regression",
+    "fluorescence_classification": "Fluorescence binary",
+    "fluorescence": "Fluorescence regression",
     "meltome_atlas": "Meltome Atlas Temperature",
     "meltome_atlas_species": "Meltome Atlas Species",
-    "stability": "Stability",
-    "deeploc2_bin": "DeepLoc2.0 Binary",
+    "stability": "Rocklin stability",
+    "deeploc2_bin": "DeepLoc2.0 binary",
     "deeploc2": "DeepLoc2.0 10-class",
-    "scope_40_208_fold": "SCOPe40 Fold",
-    "scope_40_208_superfamily": "SCOPe40 Superfamily",
+    "scope_40_208_fold": "SCOPe40 fold",
+    "scope_40_208_superfamily": "SCOPe40 superfamily",
     "scope_40_208_3ssp": "SCOPe40 3-class SSP",
     "scope_40_208_8ssp": "SCOPe40 8-class SSP",
     "binding": "Binding",
     "solubility": "DeepSol",
     "gb1": "GB1",
-    "lysosomes": "Artificial Lysosomes",
-    "lysosomes_natural": "Lysosomes Natural",
-    "tsuboyama": "Tsuboyama Stability DMS",
+    "lysosomes": "Artificial lysosomes",
+    "lysosomes_natural": "Natural lysosomes",
+    "tsuboyama": "Tsuboyama stability",
 }
 
 DATASET2TASK: dict[str, Literal["regression", "binary", "multi-label", "multi-class"]] = {

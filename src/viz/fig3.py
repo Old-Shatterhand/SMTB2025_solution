@@ -196,20 +196,23 @@ def plot_fig3(models, algo: str = "lr", class_metric: str = "mcc", reg_metric: s
     data = interpolate_data(data)
 
     for i in range(4):
-        axs[i].plot(XP, np.nanmean(data[2 * i], axis=0), label=DATASET_NAMES[datasets[2 * i]], linewidth=5)
+        axs[i].plot(XP, np.nanmean(data[2 * i], axis=0), label=DATASET_NAMES[datasets[2 * i]].split(" ")[-1 if i != 3 else -2], linewidth=5)
         axs[i].fill_between(XP, np.nanmin(data[2 * i], axis=0), np.nanmax(data[2 * i], axis=0), alpha=0.2)
         axs[i].grid()
-        axs[i].set_title(DATASET_NAMES[datasets[2 * i]])
-        axs[i].set_xlabel("Relative Layer")
+        if i != 3:
+            axs[i].set_title(" ".join(DATASET_NAMES[datasets[2 * i]].split(" ")[:-1]))
+        else:
+            axs[i].set_title("SCOPe40 SSP")
+        axs[i].set_xlabel("Relative layer")
         axs[i].set_ylabel(METRIC_TITLES[TASK_METRICS[DATASET2TASK[datasets[2 * i]]]])
 
         if i in {1, 3}:
-            axs[i].plot(XP, np.nanmean(data[2 * i + 1], axis=0), label=DATASET_NAMES[datasets[2 * i]], linewidth=5)
+            axs[i].plot(XP, np.nanmean(data[2 * i + 1], axis=0), label=DATASET_NAMES[datasets[2 * i + 1]].split(" ")[1], linewidth=5)
             axs[i].fill_between(XP, np.nanmin(data[2 * i + 1], axis=0), np.nanmax(data[2 * i + 1], axis=0), alpha=0.2)
             axs[i].legend(loc="lower center")
         else:
             scnd = axs[i].twinx()
-            scnd.plot(XP, np.nanmean(data[2 * i + 1], axis=0), label=DATASET_NAMES[datasets[2 * i + 1]], color="tab:orange", linewidth=5)
+            scnd.plot(XP, np.nanmean(data[2 * i + 1], axis=0), label=DATASET_NAMES[datasets[2 * i + 1]].split(" ")[-1], color="tab:orange", linewidth=5)
             scnd.fill_between(XP, np.nanmin(data[2 * i + 1], axis=0), np.nanmax(data[2 * i + 1], axis=0), alpha=0.2, color="tab:orange")
             scnd.set_ylabel(METRIC_TITLES[TASK_METRICS[DATASET2TASK[datasets[2 * i + 1]]]])
 
@@ -219,14 +222,14 @@ def plot_fig3(models, algo: str = "lr", class_metric: str = "mcc", reg_metric: s
             labels.extend(scnd_labels)
             axs[i].legend(handles, labels, loc="lower center")
 
-    print("Correlating Fluorescence Binary and Fluorescence Regression:")
-    correlate(data[0], data[1])
-    print("Correlating Meltome Atlas Species and Meltome Atlas Temperature:")
-    correlate(data[4], data[5])
-    print("Correlating DeepLoc2.0 Binary and DeepLoc2.0 10-class:")
-    correlate(data[2], data[3])
-    print("Correlating SCOPe40 3-class SSP and SCOPe40 8-class SSP:")
-    correlate(data[6], data[7])
+    # print("Correlating Fluorescence Binary and Fluorescence Regression:")
+    # correlate(data[0], data[1])
+    # print("Correlating Meltome Atlas Species and Meltome Atlas Temperature:")
+    # correlate(data[4], data[5])
+    # print("Correlating DeepLoc2.0 Binary and DeepLoc2.0 10-class:")
+    # correlate(data[2], data[3])
+    # print("Correlating SCOPe40 3-class SSP and SCOPe40 8-class SSP:")
+    # correlate(data[6], data[7])
     
     # plot_performance(axs[0], BASE, "fluorescence_classification", algo, CLASS_METRIC, relative=True, task="binary", models=models)
     # axs[0].set_title(DATASET_NAMES["fluorescence_classification"])
@@ -276,10 +279,10 @@ def plot_fig3(models, algo: str = "lr", class_metric: str = "mcc", reg_metric: s
     labels = sp_labels + labels[2:]
     handles.insert(7, Rectangle((0, 0), 1, 1, fc="w", fill=False, edgecolor='none', linewidth=0))
     labels.insert(7, "")
-    fig.legend(handles, labels, loc="lower center", bbox_to_anchor=(0.5, -0.03), bbox_transform=fig.transFigure, ncol=len(handles) // 2 + 1)  # -0.08
+    fig.legend(handles, labels, loc="lower center", bbox_to_anchor=(0.75, -0.03), bbox_transform=fig.transFigure, ncol=len(handles) // 2 + 1)  # -0.08
 
     plt.tight_layout()
-    plt.savefig("paper_figures/fig_3_lp_ablation.pdf", dpi=300, bbox_inches="tight")
+    plt.savefig(f"paper_figures/fig_3_{algo}_{class_metric}_{reg_metric}.pdf", dpi=300, bbox_inches="tight")
 
 
 def plot_full_fig3_left(models: list[str] = MODELS, algo: str = "knn"):
@@ -376,4 +379,4 @@ def plot_full_fig3_right():
 
     axs[0].legend()
     plt.tight_layout()
-    plt.savefig("paper_figures/full_3_sparse_test.pdf", dpi=300, bbox_inches="tight")
+    plt.savefig("paper_figures/full_3_sparse.pdf", dpi=300, bbox_inches="tight")

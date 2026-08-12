@@ -6,13 +6,12 @@ from typing_extensions import Literal
 import matplotlib
 
 from src.viz.constants import CLASS_METRIC, DATASET2TASK, LAYERS, MODELS, REG_METRIC, WP_DATASETS
-from src.viz.fig1 import plot_fig1
-from src.viz.fig2 import plot_fig2, plot_full_fig2, plot_fig2_grouped
-from src.viz.fig3_old import plot_fig3_old
+from src.viz.fig1 import plot_fig1, plot_fig1_smtb, plot_full_fig1_perfs
+from src.viz.fig2 import plot_fig2, plot_full_fig2_top, plot_full_fig2_bot, plot_fig2_grouped
 from src.viz.fig3 import plot_fig3, plot_full_fig3_left, plot_full_fig3_right
-from src.viz.fig4 import plot_fig4
-from src.viz.fig5 import plot_fig5, plot_fig5_space
-from src.viz.fig6 import plot_fig6
+from src.viz.fig4 import plot_fig4, plot_fig4_smtb
+from src.viz.fig5 import plot_fig5_space
+from src.viz.fig6 import plot_fig6, plot_fig6_smtb
 from src.viz.fig7 import plot_fig7
 from src.viz.utils import compute_performance, compute_scope_performance, read_metric, read_pca_metric, read_scope_metric
 
@@ -40,6 +39,8 @@ def collect_metric(algo: Literal["zero", "pc@95", "var@10", "5dvol", "ids", "nov
                 continue
             print(algo, model, dataset)
             try:
+                # if "esm_t6" in data and "scope_40_208_3ssp" in data["esm_t6"]:
+                #     print(data["esm_t6"]["scope_40_208_3ssp"])
                 if dataset == "scope_40_208":
                     if algo in {"knn", "lr"}:
                         data[model][dataset + "_fold"] = [compute_scope_performance(BASE, model, dataset, layer, algo=algo, metric=task_metrics[DATASET2TASK[dataset]], level="fold", min_x=10) for layer in range(LAYERS[model] + 1)]
@@ -66,21 +67,22 @@ def collect_metric(algo: Literal["zero", "pc@95", "var@10", "5dvol", "ids", "nov
             except Exception as e:
                 print("\r", model, dataset, "Error:", e)
                 data[model][dataset] = 0
-        try:
-            data[model]["scope_40_208_3ssp"] = [compute_performance(BASE, model, "scope_40_208", layer, algo=algo, metric=class_metric, aa=True, n_classes=3, task="multi-class") for layer in range(LAYERS[model] + 1)]
-        except Exception as e:
-            print("\r", model, "scope_40_208_3ssp", "Error:", e)
-            data[model]["scope_40_208_3ssp"] = 0
-        try:
-            data[model]["scope_40_208_8ssp"] = [compute_performance(BASE, model, "scope_40_208", layer, algo=algo, metric=class_metric, aa=True, n_classes=8, task="multi-class") for layer in range(LAYERS[model] + 1)]
-        except Exception as e:
-            print("\r", model, "scope_40_208_8ssp", "Error:", e)
-            data[model]["scope_40_208_8ssp"] = 0
-        try:
-            data[model]["binding"] = [compute_performance(BASE, model, "binding", layer, algo=algo, metric=class_metric, aa=True, n_classes=2, task="binary") for layer in range(LAYERS[model] + 1)]
-        except Exception as e:
-            print("\r", model, "binding", "Error:", e)
-            data[model]["binding"] = 0
+        if algo in {"knn", "lr"}:
+            try:
+                data[model]["scope_40_208_3ssp"] = [compute_performance(BASE, model, "scope_40_208", layer, algo=algo, metric=class_metric, aa=True, n_classes=3, task="multi-class") for layer in range(LAYERS[model] + 1)]
+            except Exception as e:
+                print("\r", model, "scope_40_208_3ssp", "Error:", e)
+                data[model]["scope_40_208_3ssp"] = 0
+            try:
+                data[model]["scope_40_208_8ssp"] = [compute_performance(BASE, model, "scope_40_208", layer, algo=algo, metric=class_metric, aa=True, n_classes=8, task="multi-class") for layer in range(LAYERS[model] + 1)]
+            except Exception as e:
+                print("\r", model, "scope_40_208_8ssp", "Error:", e)
+                data[model]["scope_40_208_8ssp"] = 0
+            try:
+                data[model]["binding"] = [compute_performance(BASE, model, "binding", layer, algo=algo, metric=class_metric, aa=True, n_classes=2, task="binary") for layer in range(LAYERS[model] + 1)]
+            except Exception as e:
+                print("\r", model, "binding", "Error:", e)
+                data[model]["binding"] = 0
     
     with open(p, "wb") as f:
         pickle.dump(data, f)
@@ -97,17 +99,25 @@ if __name__ == "__main__":
     # collect_metric("knn", class_metric=CLASS_METRIC, reg_metric="r2")
     # collect_metric("lr", class_metric=CLASS_METRIC, reg_metric="spearman")
     # collect_metric("lr", class_metric=CLASS_METRIC, reg_metric="pearson")
-    # collect_metric("lr", class_metric=CLASS_METRIC, reg_metric="r2")
+    # collect_metric("lr", class_metric=CLASS_METRIC, reg_metric="r2", force=True)
     # collect_metric("ids", class_metric="mcc", reg_metric="pearson", force=True)
     # collect_metric("noverlap", class_metric="mcc", reg_metric="pearson", force=True)
     # collect_metric("pc@95", class_metric="mcc", reg_metric="pearson")
     # collect_metric("var@10", class_metric="mcc", reg_metric="pearson", force=True)
 
     full_models = list(filter(lambda x: not x.startswith("ankh"), MODELS))
-    # plot_fig1(full_models, "lr")
+    # plot_fig1(full_models, "lr", class_metric=CLASS_METRIC, reg_metric="pearson")
+    # plot_full_fig1_perfs(full_models)
     # plot_fig2_grouped(full_models)
-    # plot_fig3(full_models)
+    # plot_full_fig2_top(full_models)
+    # plot_full_fig2_bot(full_models)
+    # plot_fig3(full_models, "lr", class_metric=CLASS_METRIC, reg_metric="pearson")
+    plot_full_fig3_right()
     # plot_fig4()
     # plot_fig5(full_models, "lr", class_metric=CLASS_METRIC, reg_metric=REG_METRIC)
-    plot_fig5_space()
-    plot_fig6()
+    # plot_fig5_space()
+    # plot_fig6()
+
+    # plot_fig1_smtb(full_models, "lr", class_metric=CLASS_METRIC, reg_metric=REG_METRIC)
+    # plot_fig4_smtb()
+    # plot_fig6_smtb()
