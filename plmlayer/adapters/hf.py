@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import copy
 import warnings
-from typing import Sequence
+from collections.abc import Sequence
 
 import torch
 from torch import nn
@@ -127,7 +127,7 @@ class HFAdapter(PLMAdapter):
         kw = dict(
             trust_remote_code=self.spec.trust_remote_code,
             cache_dir=self.cache_dir,
-            dtype=self._resolve_dtype(config),
+            torch_dtype=self._resolve_dtype(config),
         )
         if self.spec.revision:
             kw["revision"] = self.spec.revision
@@ -148,7 +148,9 @@ class HFAdapter(PLMAdapter):
         try:
             # Suppresses the randomly-initialised pooler that AutoModel would
             # otherwise attach to ESM -- random weights must never be shipped.
-            return AutoModel.from_pretrained(self.spec.hf_id, add_pooling_layer=False, **kw)
+            return AutoModel.from_pretrained(
+                self.spec.hf_id, add_pooling_layer=False, **kw
+            )
         except TypeError:
             return AutoModel.from_pretrained(self.spec.hf_id, **kw)
 
@@ -261,7 +263,11 @@ class HFAdapter(PLMAdapter):
             k: v for k, v in enc.items() if k in ("input_ids", "attention_mask")
         }
 
-        lay = self._layout if self._loaded else calibrate(self.tokenizer, self.spec).layout
+        lay = (
+            self._layout
+            if self._loaded
+            else calibrate(self.tokenizer, self.spec).layout
+        )
         n = len(texts)
         r_max = max(residue_counts) if residue_counts else 0
         residue_index = torch.full((n, max(r_max, 1)), -1, dtype=torch.long)
@@ -304,7 +310,9 @@ class HFAdapter(PLMAdapter):
     # ------------------------------------------------------------------
     # forward
     # ------------------------------------------------------------------
-    def _normalize_states(self, hidden_states: tuple[torch.Tensor, ...]) -> torch.Tensor:
+    def _normalize_states(
+        self, hidden_states: tuple[torch.Tensor, ...]
+    ) -> torch.Tensor:
         """Make every layer equal what a model truncated there would emit.
 
         Applies the final norm to each intermediate state, and to the last state
@@ -374,7 +382,9 @@ class HFAdapter(PLMAdapter):
         keep = layer * n_heads
         if keep == regression.in_features:
             return
-        resized = nn.Linear(keep, regression.out_features, bias=regression.bias is not None)
+        resized = nn.Linear(
+            keep, regression.out_features, bias=regression.bias is not None
+        )
         with torch.no_grad():
             resized.weight.copy_(regression.weight[:, :keep])
             if regression.bias is not None:
