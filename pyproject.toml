@@ -26,7 +26,7 @@ dependencies = [
 
 [project.optional-dependencies]
 esmc = ["esm>=3.0"]
-gpu = ["cuml-cu12"]
+gpu = ["cuml-cu13"]
 plot = ["matplotlib>=3.7"]
 dev = ["pytest>=7", "pytest-cov"]
 
