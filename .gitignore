@@ -9,3 +9,7 @@ logs/
 seq_knn_logs/
 paper_figures/
 *.ipynb
+*.html
+graphify-out/
+*.egg-info
+data/

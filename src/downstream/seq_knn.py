@@ -1,3 +1,11 @@
+"""
+.. warning::
+   **This module does not import.** It requires ``src.downstream.analyze``, which
+   was renamed to ``src.downstream.probe_layer`` in commit dfa1d4e. Its existence check also
+   tests a different path than it writes, so ``--force`` is always on.
+   Kept for the record; fix the import before using it.
+"""
+
 import pickle
 import random
 import argparse

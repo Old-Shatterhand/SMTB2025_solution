@@ -1,3 +1,11 @@
+"""
+.. warning::
+   **This module does not import.** It requires ``src.downstream.analyze``, which
+   was renamed to ``src.downstream.probe_layer`` in commit dfa1d4e. It also unpacks two values from ``build_wp_dataloader``, which has
+   returned three since the same commit.
+   Kept for the record; fix the import before using it.
+"""
+
 import copy
 import pickle
 import time

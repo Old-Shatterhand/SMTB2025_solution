@@ -13,3 +13,9 @@ sentencepiece
 torchmetrics
 tqdm
 biopython
+scipy
+filelock
+lightning
+# probe_layer.py imports these; both are GPU/cluster-only:
+#   cuml-cu12 is pulled in by the --extra-index-url above
+datasail
