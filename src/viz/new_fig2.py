@@ -6,7 +6,7 @@ from matplotlib import gridspec, pyplot as plt
 from matplotlib.patches import Rectangle
 import numpy as np
 
-from src.viz.constants import CLASS_METRIC, DATASET2TASK, DATATASK_NAMES, METRIC_TITLES, MODEL_COLORS, MODEL_MARKERS, MODELS, REG_METRIC, TASK_METRICS
+from src.viz.constants import CLASS_METRIC, DATASET2TASK, DATATASK_NAMES, METRIC_TITLES, MODEL_COLORS, MODEL_MARKERS, MODEL_NAMES, MODELS, REG_METRIC, TASK_METRICS
 from src.viz.plot_utils import plot_performance, set_subplot_label
 from src.viz.utils import XP, compute_metric, interpolate_data
 
@@ -81,7 +81,7 @@ def diff_best(ax, dataset, model, sampled_data, full_data):
         metric[-1] = np.mean(metric[-1])
         min_.append(np.min(metric[-1]))
         max_.append(np.max(metric[-1]))
-    ax.plot(RATIOS, metric, label=model, color=MODEL_COLORS[model], marker=MODEL_MARKERS[model])
+    ax.plot(RATIOS, metric, label=MODEL_NAMES[model], color=MODEL_COLORS[model], marker=MODEL_MARKERS[model])
     print(f"{dataset} - {model}: {sum(np.array(max_) - np.array(min_))}")
     ax.fill_between(RATIOS, min_, max_, color=MODEL_COLORS[model], alpha=0.2)
 
@@ -96,93 +96,10 @@ def correlate(ds1, ds2):
     print(f"Mean correlation: {np.nanmean(coeffs):.3f} ± {np.nanstd(coeffs):.3f}")
 
 
-def plot_fig3_old(models):
-    fig = plt.figure(figsize=(20, 15))
-    gs = gridspec.GridSpec(1, 2, figure=fig, wspace=0.2)
-    gs_left = gs[0].subgridspec(4, 2, wspace=0.2)
-    gs_right = gs[1].subgridspec(4, 2, wspace=0.2)
-    axs = [fig.add_subplot(gs_left[i, j]) for i in range(4) for j in range(2)] + [fig.add_subplot(gs_right[i, j]) for i in range(4) for j in range(2)]
-
-    fcls_perfs = plot_performance(axs[0], BASE, "fluorescence_classification", "knn", "mcc", relative=True, task="binary", models=models)
-    axs[0].set_title("Fluorescence Binary")
-    axs[0].set_ylabel(METRIC_TITLES[TASK_METRICS[DATASET2TASK["fluorescence_classification"]]])
-    set_subplot_label(axs[0], fig, "A")
-    freg_perfs = plot_performance(axs[1], BASE, "fluorescence", "knn", "r2", relative=True, task="regression", models=models)
-    axs[1].set_title("Fluorescence Regression")
-    axs[1].set_ylabel(METRIC_TITLES[TASK_METRICS[DATASET2TASK["fluorescence"]]])
-    set_subplot_label(axs[1], fig, "B")
-
-    dbin_perfs = plot_performance(axs[2], BASE, "deeploc2_bin", "knn", "mcc", relative=True, task="binary", models=models)
-    axs[2].set_title("DeepLoc2.0 Binary")
-    axs[2].set_ylabel(METRIC_TITLES[TASK_METRICS[DATASET2TASK["deeploc2_bin"]]])
-    set_subplot_label(axs[2], fig, "C")
-    d10_perfs = plot_performance(axs[3], BASE, "deeploc2", "knn", "mcc", relative=True, task="multi-label", models=models)
-    axs[3].set_title("DeepLoc2.0 10-class")
-    axs[3].set_ylabel(METRIC_TITLES[TASK_METRICS[DATASET2TASK["deeploc2"]]])
-    set_subplot_label(axs[3], fig, "D")
-
-    ma_temp = plot_performance(axs[4], BASE, "meltome_atlas_species", "knn", "mcc", relative=True, task="multi-class", models=models)
-    axs[4].set_title("Meltome Atlas Species")
-    axs[4].set_ylabel(METRIC_TITLES[TASK_METRICS[DATASET2TASK["meltome_atlas_species"]]])
-    set_subplot_label(axs[4], fig, "E")
-    ma_species = plot_performance(axs[5], BASE, "meltome_atlas", "knn", "r2", relative=True, task="regression", models=models)
-    axs[5].set_title("Meltome Atlas Temperature")
-    axs[5].set_ylabel(METRIC_TITLES[TASK_METRICS[DATASET2TASK["meltome_atlas"]]])
-    set_subplot_label(axs[5], fig, "F")
-
-    ssp3_perfs = plot_performance(axs[6], BASE, "scope_40_208", "knn", "mcc", relative=True, aa=True, n_classes=3, task="multi-class", models=models)
-    axs[6].set_title("SCOPe40 3-class SSP")
-    axs[6].set_ylabel(METRIC_TITLES[TASK_METRICS[DATASET2TASK["scope_40_208_3ssp"]]])
-    set_subplot_label(axs[6], fig, "G")
-    ssp8_perfs = plot_performance(axs[7], BASE, "scope_40_208", "knn", "mcc", relative=True, aa=True, n_classes=8, task="multi-class", models=models)
-    axs[7].set_title("SCOPe40 8-class SSP")
-    axs[7].set_ylabel(METRIC_TITLES[TASK_METRICS[DATASET2TASK["scope_40_208_8ssp"]]])
-    set_subplot_label(axs[7], fig, "H")
-
-    if (fp := Path("paper_figures/sampled.pkl")).exists():
-        with open(fp, "rb") as f:
-            full_data, sampled_data = pickle.load(f)
-    else:
-        full_data = load_full_data()
-        sampled_data = load_sampled_data()
-        with open(fp, "wb") as f:
-            pickle.dump((full_data, sampled_data), f)
-
-    scale = {x: x + 8 for x in range(8)}  # dict(enumerate([2, 3, 6, 7, 10, 11]))
-    for d, dataset in enumerate(["fluorescence_classification", "fluorescence", "deeploc2_bin", "deeploc2", "meltome_atlas", "stability", "scope_40_208_superfamily", "solubility"]):
-        for model in ["esm_t6", "esm_t12", "esm_t30", "esm_t33", "esm_t36"]:
-            diff_best(axs[scale[d]], dataset, model, sampled_data, full_data)
-        axs[scale[d]].set_title(DATATASK_NAMES[dataset])
-        set_subplot_label(axs[scale[d]], fig, label=f"{chr(ord('A') + d + 8)}")
-        if d % 2 == 0:
-            axs[scale[d]].set_ylabel("Relative-to-best performance")
-
-    for i in range(12):
-        axs[i].grid()
-        if i not in {6, 7, 14, 15}:
-            axs[i].tick_params(axis='x', labelbottom=False, bottom=False)
-            axs[i].set_xlabel("")
-        else:
-            axs[i].set_xlabel("Ratio of training data")
-        if i in {1, 3, 7}:
-            axs[i].sharey(axs[i - 1])
-
-    sp_handles, sp_labels = axs[9].get_legend_handles_labels()
-    handles, labels = axs[0].get_legend_handles_labels()
-    handles = sp_handles + handles[2:]
-    labels = sp_labels + labels[2:]
-    handles.insert(7, Rectangle((0, 0), 1, 1, fc="w", fill=False, edgecolor='none', linewidth=0))
-    labels.insert(7, "")
-    fig.legend(handles, labels, loc="lower center", bbox_to_anchor=(0.5, 0.01), bbox_transform=fig.transFigure, ncol=len(handles) // 2 + 1)  # -0.08
-
-    plt.tight_layout()
-    plt.savefig("paper_figures/3_lp_ablation.pdf", dpi=300, bbox_inches="tight")
-
-
-def plot_fig3(models, algo: str = "lr", class_metric: str = "mcc", reg_metric: str = "pearson"):
+def plot_new_fig2(models, algo: str = "lr", class_metric: str = "mcc", reg_metric: str = "pearson"):
     fig = plt.figure(figsize=(20, 8))
     gs = gridspec.GridSpec(1, 2, figure=fig, wspace=0.2)
-    gs_left = gs[0].subgridspec(2, 2, wspace=0.45)
+    gs_left = gs[0].subgridspec(2, 2, wspace=0.55)
     gs_right = gs[1].subgridspec(2, 2, wspace=0.2)
     axs = [fig.add_subplot(gs_left[i, j]) for i in range(2) for j in range(2)] + [fig.add_subplot(gs_right[i, j]) for i in range(2) for j in range(2)]
 
@@ -196,7 +113,7 @@ def plot_fig3(models, algo: str = "lr", class_metric: str = "mcc", reg_metric: s
     data = interpolate_data(data)
 
     for i in range(4):
-        axs[i].plot(XP, np.nanmean(data[2 * i], axis=0), label=DATATASK_NAMES[datasets[2 * i]].split(" ")[-1 if i != 3 else -2], linewidth=5)
+        axs[i].plot(XP, np.nanmean(data[2 * i], axis=0), label=DATATASK_NAMES[datasets[2 * i]].split(" ")[-1 if i != 3 else -2].lower(), linewidth=5)
         axs[i].fill_between(XP, np.nanmin(data[2 * i], axis=0), np.nanmax(data[2 * i], axis=0), alpha=0.2)
         if i != 3:
             axs[i].set_title(" ".join(DATATASK_NAMES[datasets[2 * i]].split(" ")[:-1]))
@@ -206,12 +123,12 @@ def plot_fig3(models, algo: str = "lr", class_metric: str = "mcc", reg_metric: s
         axs[i].set_ylabel(METRIC_TITLES[TASK_METRICS[DATASET2TASK[datasets[2 * i]]]])
 
         if i in {1, 3}:
-            axs[i].plot(XP, np.nanmean(data[2 * i + 1], axis=0), label=DATATASK_NAMES[datasets[2 * i + 1]].split(" ")[1], linewidth=5)
+            axs[i].plot(XP, np.nanmean(data[2 * i + 1], axis=0), label=DATATASK_NAMES[datasets[2 * i + 1]].split(" ")[1].lower(), linewidth=5)
             axs[i].fill_between(XP, np.nanmin(data[2 * i + 1], axis=0), np.nanmax(data[2 * i + 1], axis=0), alpha=0.2)
             axs[i].legend(loc="lower center")
         else:
             scnd = axs[i].twinx()
-            scnd.plot(XP, np.nanmean(data[2 * i + 1], axis=0), label=DATATASK_NAMES[datasets[2 * i + 1]].split(" ")[-1], color="tab:orange", linewidth=5)
+            scnd.plot(XP, np.nanmean(data[2 * i + 1], axis=0), label=DATATASK_NAMES[datasets[2 * i + 1]].split(" ")[-1].lower(), color="tab:orange", linewidth=5)
             scnd.fill_between(XP, np.nanmin(data[2 * i + 1], axis=0), np.nanmax(data[2 * i + 1], axis=0), alpha=0.2, color="tab:orange")
             scnd.set_ylabel(METRIC_TITLES[TASK_METRICS[DATASET2TASK[datasets[2 * i + 1]]]])
 
@@ -278,10 +195,10 @@ def plot_fig3(models, algo: str = "lr", class_metric: str = "mcc", reg_metric: s
     labels = sp_labels + labels[2:]
     handles.insert(7, Rectangle((0, 0), 1, 1, fc="w", fill=False, edgecolor='none', linewidth=0))
     labels.insert(7, "")
-    fig.legend(handles, labels, loc="lower center", bbox_to_anchor=(0.75, -0.03), bbox_transform=fig.transFigure, ncol=len(handles) // 2 + 1)  # -0.08
+    fig.legend(handles, labels, loc="lower center", bbox_to_anchor=(0.75, -0.06), bbox_transform=fig.transFigure, ncol=len(handles) // 2 + 1)  # -0.08
 
     plt.tight_layout()
-    plt.savefig(f"paper_figures/fig_3_{algo}_{class_metric}_{reg_metric}.pdf", dpi=300, bbox_inches="tight")
+    plt.savefig(f"paper_figures/fig_2_new_{algo}_{class_metric}_{reg_metric}.pdf", dpi=300, bbox_inches="tight")
 
 
 def plot_full_fig3_left(models: list[str] = MODELS, algo: str = "knn", class_metric: str = CLASS_METRIC, reg_metric: str = REG_METRIC):

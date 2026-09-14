@@ -8,7 +8,7 @@ import pandas as pd
 
 from src.viz.plot_utils import set_subplot_label
 from src.viz.utils import compute_metric
-from src.viz.constants import MODEL_COLORS, MODEL_MARKERS, DATASET_NAMES, DATASET2TASK
+from src.viz.constants import MODEL_COLORS, MODEL_MARKERS, DATATASK_NAMES, DATASET2TASK
 
 BASE = Path("/") / "scratch" / "SCRATCH_SAS" / "roman" / "SMTB"
 

@@ -6,7 +6,11 @@ from typing_extensions import Literal
 import matplotlib
 
 from src.viz.constants import CLASS_METRIC, DATASET2TASK, LAYERS, MODELS, REG_METRIC, WP_DATASETS
-from src.viz.fig1 import plot_fig1, plot_fig1_smtb, plot_full_fig1_perfs
+from src.viz.new_fig1 import plot_heatmap, plot_new_fig1
+from src.viz.new_fig2 import plot_new_fig2
+from src.viz.new_fig3 import plot_new_fig3
+from src.viz.new_fig4 import plot_new_fig4
+# from src.viz.fig1 import plot_fig1, plot_fig1_smtb, plot_full_fig1_perfs
 from src.viz.fig2 import plot_fig2, plot_full_fig2_top, plot_full_fig2_bot, plot_fig2_grouped
 from src.viz.fig3 import plot_fig3, plot_full_fig3_left, plot_full_fig3_right
 from src.viz.fig4 import plot_fig4, plot_fig4_smtb
@@ -91,8 +95,8 @@ def collect_metric(algo: Literal["zero", "pc@95", "var@10", "5dvol", "ids", "nov
 
 
 if __name__ == "__main__":
-    matplotlib.rc('font', **{'size': 11})
-    models = ["esm_t33", "esm_t36", "esmc_600m", "ankh_large", "prott5", "prostt5", "progen2_medium", "progen2_large", "protgpt2"]
+    matplotlib.rc('font', **{'size': 13})
+    # models = ["esm_t33", "esm_t36", "esmc_600m", "ankh_large", "prott5", "prostt5", "progen2_medium", "progen2_large", "protgpt2"]
 
     # collect_metric("knn", class_metric=CLASS_METRIC, reg_metric="spearman")
     # collect_metric("knn", class_metric=CLASS_METRIC, reg_metric="pearson")
@@ -106,13 +110,25 @@ if __name__ == "__main__":
     # collect_metric("var@10", class_metric="mcc", reg_metric="pearson", force=True)
 
     full_models = list(filter(lambda x: not x.startswith("ankh"), MODELS))
-    # plot_fig1(full_models, "lr", class_metric=CLASS_METRIC, reg_metric="pearson")
-    # plot_full_fig1_perfs(full_models)
+
+    # plot_new_fig1(full_models, "lr", class_metric=CLASS_METRIC, reg_metric="pearson")
+    plot_heatmap(full_models, "knn", class_metric=CLASS_METRIC, reg_metric="pearson")
+    # plot_new_fig2(full_models, "lr", class_metric=CLASS_METRIC, reg_metric="pearson")
+    # plot_new_fig3()
+    # plot_new_fig4(full_models)
+    
+    # plot_fig1(full_models, "knn", class_metric=CLASS_METRIC, reg_metric="pearson")
+    # plot_full_fig1_perfs(full_models, "knn", class_metric=CLASS_METRIC, reg_metric="pearson")
+    # plot_full_fig1_perfs(["proteinbert"], "lr", class_metric=CLASS_METRIC, reg_metric="pearson")
+    
     # plot_fig2_grouped(full_models)
     # plot_full_fig2_top(full_models)
     # plot_full_fig2_bot(full_models)
+
     # plot_fig3(full_models, "lr", class_metric=CLASS_METRIC, reg_metric="pearson")
-    plot_full_fig3_right()
+    # plot_full_fig3_left(full_models, "knn", "mcc", "pearson")
+    # plot_full_fig3_right()
+    
     # plot_fig4()
     # plot_fig5(full_models, "lr", class_metric=CLASS_METRIC, reg_metric=REG_METRIC)
     # plot_fig5_space()

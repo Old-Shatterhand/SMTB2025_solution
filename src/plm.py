@@ -12,6 +12,7 @@ from argparse import ArgumentParser
 import torch
 import numpy as np
 import pandas as pd
+# import multimolecule
 from tqdm import tqdm
 from tokenizers import Tokenizer
 from esm.models.esmc import ESMC
@@ -322,6 +323,55 @@ def run_prott5(
         del embedding_repr
 
 
+def run_proteinbert(
+    data_path: Path, 
+    output_path: Path, 
+    aa_level: bool = False, 
+    empty: bool = False, 
+    force: bool = False
+) -> None:
+    """
+    Run ProteinBERT model to extract embeddings for sequences in the given data path.
+
+    Args:
+        data_path: Path to the CSV file containing sequences.
+        output_path: Path to save the extracted embeddings.
+        aa_level: Whether to save amino acid level embeddings or mean pooled embeddings.
+        empty: Whether to use an untrained model.
+        force: Whether to overwrite existing embeddings.
+    """
+    data = pd.read_csv(data_path)
+    if "positions" in data.columns:
+        data["positions"] = data["positions"].apply(eval)
+
+    for i in range(7):
+        (output_path / f"layer_{i}").mkdir(parents=True, exist_ok=True)
+
+    tokenizer = AutoTokenizer.from_pretrained("multimolecule/proteinbert", trust_remote_code=True, cache_dir=HF_MODEL_CACHE)
+    if not empty:
+        model = AutoModel.from_pretrained("multimolecule/proteinbert", trust_remote_code=True, cache_dir=HF_MODEL_CACHE).to(DEVICE).eval()
+    else:
+        raise NotImplementedError("Empty ProteinBERT model is not implemented.")
+
+    for _, row in tqdm(data.iterrows(), total=len(data), desc="Processing sequences"):
+        idx = row["ID"]
+        if not force and (output_path / "layer_0" / f"{idx}.pkl").exists():
+            continue
+        tokens = tokenizer(row["sequence"][:1022], return_tensors="pt").to(DEVICE)
+
+        with torch.no_grad():
+            embedding_repr = model(**tokens, output_attentions=False, output_hidden_states=True)
+            del tokens
+
+        for i in range(7):
+            with open(output_path / f"layer_{i}" / f"{idx}.pkl", "wb") as f:
+                save_embeddings(embedding_repr.hidden_states[i][0, 1:-1].cpu().float().numpy(), aa_level, f)
+        with open(output_path / f"layer_6" / f"{idx}.pkl", "wb") as f:
+            save_embeddings(embedding_repr.last_hidden_state[0, 1:-1].cpu().float().numpy(), aa_level, f)
+        
+        del embedding_repr
+
+
 def run_progen2(
     model_name: str, 
     data_path: Path,
@@ -494,6 +544,8 @@ if __name__ == "__main__":
         run_prott5(args.data_path, args.output_path, args.aa_level, args.empty, args.force)
     elif "prostt5" in args.model_name:
         run_prostt5(args.data_path, args.output_path, args.aa_level, args.empty, args.force)
+    elif "proteinbert" in args.model_name:
+        run_proteinbert(args.data_path, args.output_path, args.aa_level, args.empty, args.force)
     elif "progen" in args.model_name:
         run_progen2(args.model_name, args.data_path, args.output_path, args.aa_level or args.ntp, args.empty, args.force, args.ntp)
     elif "protgpt2" in args.model_name:

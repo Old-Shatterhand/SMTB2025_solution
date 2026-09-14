@@ -108,26 +108,26 @@ def routine(args):
 
         # Compute mean and covariance for the first dataset, using cached values if available and not forcing recalculation
         print(f"[{time() - start:.2f}s] Layer {layer}: computing moments...")
-        if (base1 / "mahalanobis.pkl").exists() and not args.fforce:
-            with open(base1 / "mahalanobis.pkl", "rb") as f:
+        if (base1 / "sampled_mahalanobis.pkl").exists() and not args.fforce:
+            with open(base1 / "sampled_mahalanobis.pkl", "rb") as f:
                 mu1, cov1 = pickle.load(f)
         else:
             mu1, cov1 = comp_mean_cov(df1, base1, labels1)
 
             # Save the computed mean and covariance for the first dataset to a pickle file
-            with open(base1 / "mahalanobis.pkl", "wb") as f:
+            with open(base1 / "sampled_mahalanobis.pkl", "wb") as f:
                 pickle.dump((mu1, cov1), f)
 
         # Compute mean and covariance for the second dataset, using cached values if available and not forcing recalculation
-        if (base2 / "mahalanobis.pkl").exists() and not args.fforce:
+        if (base2 / "sampled_mahalanobis.pkl").exists() and not args.fforce:
             print(f"[{time() - start:.2f}s] Layer {layer}: loading cached moments for {ds2}.")
-            with open(base2 / "mahalanobis.pkl", "rb") as f:
+            with open(base2 / "sampled_mahalanobis.pkl", "rb") as f:
                 mu2, cov2 = pickle.load(f)
         else:
             mu2, cov2 = comp_mean_cov(df2, base2, labels2)
 
             # Save the computed mean and covariance for the second dataset to a pickle file
-            with open(base2 / "mahalanobis.pkl", "wb") as f:
+            with open(base2 / "sampled_mahalanobis.pkl", "wb") as f:
                 pickle.dump((mu2, cov2), f)
 
         # Calculate the Mahalanobis distance between the two datasets using their means and covariances

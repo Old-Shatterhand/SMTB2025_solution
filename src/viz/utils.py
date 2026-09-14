@@ -188,8 +188,8 @@ def compute_performance(
             ids = None
         else:
             y_hat, y, ids = info
-        y_hat = np.array(y_hat)
-        y = np.array(y)
+        y_hat = np.array(y_hat).squeeze()
+        y = np.array(y).squeeze()
 
         if ids is not None and id_cls_map is not None:
             return compute_metric(y_hat, y, metric, task, classes=[id_cls_map[idx] for idx in ids], no_mean=no_mean)
@@ -217,7 +217,12 @@ def compute_scope_performance(
         return 0
     with open(fpath, "rb") as f:
         try:
-            y_hat, y = pd.read_pickle(f)[1]
+            info = pd.read_pickle(f)[1]
+            if len(info) == 2:
+                y_hat, y = info
+                ids = None
+            else:
+                y_hat, y, ids = info
         except Exception as e:
             print(f"Error reading {fpath}: {e}")
             return 0

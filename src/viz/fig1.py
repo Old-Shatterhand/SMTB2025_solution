@@ -9,8 +9,8 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import auc
 
-from src.viz.constants import DATASET2TASK, DATASET_COLORS, DATASET_NAMES, METRIC_TITLES, MODEL_NAMES, TASK_METRICS, kill_axis
-from src.viz.plot_utils import plot_performance, plot_scope_minx_performance, set_subplot_label
+from src.viz.constants import DATASET2TASK, DATASET_COLORS, DATATASK_NAMES, METRIC_TITLES, MODEL_NAMES, TASK_METRICS, kill_axis
+from src.viz.plot_utils import plot_improvement_heatmap, plot_performance, plot_scope_minx_performance, set_subplot_label
 from src.viz.utils import interpolate_data, XP
 
 BASE = Path("/") / "scratch" / "SCRATCH_SAS" / "roman" / "SMTB"
@@ -18,158 +18,6 @@ BASE = Path("/") / "scratch" / "SCRATCH_SAS" / "roman" / "SMTB"
 
 def scale_data(data):
     return data  # normalize(data, axis=2)
-
-
-def plot_improvement_heatmap(ax, df, models, datasets):
-    tmp_df = df.loc[models, datasets]
-    data = np.array(tmp_df.values - 1, dtype=np.float32)
-    rows, cols = data.shape
-    
-    base_cmap = LinearSegmentedColormap.from_list(
-    "orange_violet_base",
-        [
-            "#ECD75C",   # lighter orange (midpoint between original cream and darker orange)
-            "#9B72CF",   # medium violet
-            "#4A1070",   # deep violet        (high)
-        ],
-    )
-
-    # Sample 255 colors from the base cmap (for values 1–200)
-    n = 255
-    base_colors = base_cmap(np.linspace(0, 1, n))
-
-    # Prepend white for the 0-value bin
-    white = np.array([[1.0, 1.0, 1.0, 1.0]])
-    all_colors = np.vstack([white, base_colors])  # shape: (256, 4)
-
-    orange_violet = ListedColormap(all_colors, name="orange_violet")
-    orange_violet.set_bad(color="lightgray")  # NaN → light gray
-
-    # Usage with a Normalize so 0 maps to index 0 and 200 maps to index 255
-    norm = PowerNorm(gamma=0.7, vmin=0, vmax=1)
-
-    # ── Draw heatmap ─────────────────────────────────────────────────────────
-    ax.imshow(
-        data,
-        cmap=orange_violet,
-        # vmin=0, vmax=1,
-        norm=norm,
-        aspect="auto",
-        interpolation="nearest",
-    )
-
-    # ── Cell annotations ─────────────────────────────────────────────────────
-    font_size = 13
-
-    for r in range(rows):
-        for c in range(cols):
-            val = data[r, c]
-            if np.isnan(val):
-                label = "NaN"
-                text_color = "#AAAAAA"
-            else:
-                if val < 0.1:
-                    label = f"+{val * 100:.1f}%" if val > 0 else "±0%"
-                else:
-                    label = f"+{val * 100:.0f}%"
-                text_color = "#1A1A2E" if val < 0.45 else "#FFFFFF"
-            ax.text(
-                c, r, label,
-                ha="center", va="center",
-                fontsize=font_size,
-                color=text_color,
-                fontfamily="Montserrat",
-                fontweight="bold",
-            )
-
-    # ── Grid lines ───────────────────────────────────────────────────────────
-    ax.set_xticks(np.arange(-0.5, cols, 1), minor=True)
-    ax.set_yticks(np.arange(-0.5, rows, 1), minor=True)
-    ax.grid(which="minor", color="#1A1A2E", linewidth=1.5)
-    ax.tick_params(which="minor", length=0)
-
-    # ── Axis labels ──────────────────────────────────────────────────────────
-    # ax.set_xticks(range(cols))
-    ax.set_yticks(range(rows))
-    ax.set_yticklabels([MODEL_NAMES[m] for m in models], color="#1A1A2E")
-    ax.tick_params(length=0)
-    for spine in ax.spines.values():
-        spine.set_visible(False)
-
-
-    # --- Row 2: group labels on a twin axis pushed further down ---
-    fine_labels  = ["bin.", "reg.", "", "Species", r"$T_\text{m}$", "Rocklin", "Tsuboyama", "", "binary", "10-class", "fold", "superf.", "3c SSP", "8c SSP", ""]
-    group_labels = ['Fluorescence', "GB1", 'Meltome A.', 'Stability', "DeepSol", 'DeepLoc2.0', 'SCOPe40', 'Binding']
-    group_sizes  = [2, 1, 2, 2, 1, 2, 4, 1]   # ← only change needed for different groupings
-
-    second_labels = ["Protein Level Tasks", "Residue Level Tasks"]
-    group_sizes_2 = [12, 3]
-
-    # Derived positions
-    starts  = np.cumsum([0] + group_sizes[:-1])          # first col index of each group
-    centres = starts + (np.array(group_sizes) - 1) / 2   # label centre
-    ends    = starts + np.array(group_sizes) - 1
-
-    snd_starts  = np.cumsum([0] + group_sizes_2[:-1])          # first col index of each group
-    snd_centres = snd_starts + (np.array(group_sizes_2) - 1) / 2   # label centre
-    snd_ends    = snd_starts + np.array(group_sizes_2) - 1
-
-    # Row 1: fine labels
-    ax.set_xticks(range(sum(group_sizes)))
-    ax.set_xticklabels(fine_labels)
-    ax.xaxis.set_ticks_position('bottom')
-
-    # Row 2: group labels
-    ax2 = ax.twiny()
-    ax2.set_xlim(ax.get_xlim())
-    ax2.set_xticks(centres)
-    ax2.set_xticklabels(group_labels, fontweight='bold')
-
-    ax2.xaxis.set_label_position('bottom')   # ← move label row to bottom
-    ax2.xaxis.set_ticks_position('bottom')   # ← move ticks to bottom
-    ax2.tick_params(bottom=False, top=False) # ← hide tick marks
-    ax2.spines['bottom'].set_position(('outward', 25))  # ← push below fine labels
-    ax2.spines['top'].set_visible(False)
-    ax2.spines['bottom'].set_visible(False)
-
-    # Span lines per group
-    inset = 0.3
-    depth = 0.03
-    trans = ax.get_xaxis_transform()  # data-x, axes-fraction-y
-    for s, e in zip(starts, ends):
-        if s == e:
-            continue  # skip single-column groups (no line needed)
-        line = mlines.Line2D([s - inset, e + inset], [-depth, -depth],
-                            transform=trans, clip_on=False,
-                            color='black', linewidth=1.2,
-                            solid_capstyle='butt')
-        ax.add_line(line)
-
-    # Row 3: task type labels
-    ax2 = ax.twiny()
-    ax2.set_xlim(ax.get_xlim())
-    ax2.set_xticks(snd_centres)
-    ax2.set_xticklabels(second_labels, fontweight='bold')
-
-    ax2.xaxis.set_label_position('bottom')   # ← move label row to bottom
-    ax2.xaxis.set_ticks_position('bottom')   # ← move ticks to bottom
-    ax2.tick_params(bottom=False, top=False) # ← hide tick marks
-    ax2.spines['bottom'].set_position(('outward', 50))  # ← push below fine labels
-    ax2.spines['top'].set_visible(False)
-    ax2.spines['bottom'].set_visible(False)
-
-    # Span lines per group
-    inset = 0.3
-    depth = 0.065
-    trans = ax.get_xaxis_transform()  # data-x, axes-fraction-y
-    for s, e in zip(snd_starts, snd_ends):
-        if s == e:
-            continue  # skip single-column groups (no line needed)
-        line = mlines.Line2D([s - inset, e + inset], [-depth, -depth],
-                            transform=trans, clip_on=False,
-                            color='black', linewidth=1.2,
-                            solid_capstyle='butt')
-        ax.add_line(line)
 
 
 def plot_fig1(models: list[str], algo: Literal["lr", "knn"], class_metric: str = "mcc", reg_metric: str = "pearson"):
@@ -204,13 +52,13 @@ def plot_fig1(models: list[str], algo: Literal["lr", "knn"], class_metric: str =
     for d, dataset in enumerate(["solubility", "scope_40_208_fold", "deeploc2", "scope_40_208_3ssp", "binding"]):
         mean = np.nanmean(class_data[d], axis=0)
         # print(dataset, ":", auc(XP, mean))
-        axs[1].plot(XP, mean, label=DATASET_NAMES[dataset], linewidth=5, color=DATASET_COLORS[dataset])
+        axs[1].plot(XP, mean, label=DATATASK_NAMES[dataset], linewidth=5, color=DATASET_COLORS[dataset])
         # axs[1].fill_between(XP, np.nanmin(class_data[d], axis=0), np.nanmax(class_data[d], axis=0), alpha=0.2)
 
     for d, dataset in enumerate(["fluorescence", "gb1", "stability", "meltome_atlas", "tsuboyama"]):
         mean = np.nanmean(reg_data[d], axis=0)
         # print(dataset, ":", auc(XP, mean))
-        axs[2].plot(XP, mean, label=DATASET_NAMES[dataset], linewidth=5, color=DATASET_COLORS[dataset])
+        axs[2].plot(XP, mean, label=DATATASK_NAMES[dataset], linewidth=5, color=DATASET_COLORS[dataset])
         # axs[2].fill_between(XP, np.nanmin(reg_data[d], axis=0), np.nanmax(reg_data[d], axis=0), alpha=0.2)
 
     set_subplot_label(axs[0], fig, "A")
@@ -240,11 +88,11 @@ def plot_fig1_smtb(models: list[str], algo: Literal["lr", "knn"], class_metric: 
 
     for d, dataset in enumerate(["solubility", "scope_40_208_fold", "deeploc2", "scope_40_208_3ssp", "binding"]):
         mean = np.nanmean(class_data[d], axis=0)
-        axs[0].plot(XP, mean, label=DATASET_NAMES[dataset], linewidth=5, color=DATASET_COLORS[dataset])
+        axs[0].plot(XP, mean, label=DATATASK_NAMES[dataset], linewidth=5, color=DATASET_COLORS[dataset])
 
     for d, dataset in enumerate(["fluorescence", "gb1", "stability", "meltome_atlas", "tsuboyama"]):
         mean = np.nanmean(reg_data[d], axis=0)
-        axs[1].plot(XP, mean, label=DATASET_NAMES[dataset], linewidth=5, color=DATASET_COLORS[dataset])
+        axs[1].plot(XP, mean, label=DATATASK_NAMES[dataset], linewidth=5, color=DATASET_COLORS[dataset])
 
     for i in range(2):
         axs[i].grid()
@@ -279,27 +127,25 @@ def plot_full_fig1_perfs(models: list[str], algo: Literal["knn", "lr"] = "knn", 
     plot_performance(axs[1][0], BASE, "fluorescence", algo, reg_metric, task="regression", models=models, relative=True)
     plot_performance(axs[2][0], BASE, "gb1", algo, reg_metric, task="regression", models=models, relative=True)
     
-    plot_performance(axs[0][1], BASE, "meltome_atlas_species", algo, class_metric, task="multi-class", models=models, relative=True)
+    # plot_performance(axs[0][1], BASE, "meltome_atlas_species", algo, class_metric, task="multi-class", models=models, relative=True)
     plot_performance(axs[1][1], BASE, "meltome_atlas", algo, reg_metric, task="regression", models=models, relative=True)
     plot_performance(axs[2][1], BASE, "stability", algo, reg_metric, task="regression", models=models, relative=True)
 
     plot_performance(axs[0][2], BASE, "deeploc2_bin", algo, class_metric, task="binary", models=models, relative=True)
     plot_performance(axs[1][2], BASE, "deeploc2", algo, class_metric, task="multi-label", models=models, relative=True)
-    plot_performance(axs[2][2], BASE, "solubility", algo, class_metric, task="binary", models=models, relative=True)
+    plot_performance(axs[2][2], BASE, "tsuboyama", algo, reg_metric, task="regression", models=models, relative=True)
 
     plot_scope_minx_performance(axs[0][3], BASE, algo, class_metric, "superfamily", model_prefix="", models=models, relative=True)
     plot_scope_minx_performance(axs[1][3], BASE, algo, class_metric, "fold", model_prefix="", models=models, relative=True)
+    plot_performance(axs[2][3], BASE, "solubility", algo, class_metric, task="binary", models=models, relative=True)
     
     plot_performance(axs[0][4], BASE, "scope_40_208", "knn", class_metric, relative=True, aa=True, n_classes=3, task="multi-class", models=models)
     plot_performance(axs[1][4], BASE, "scope_40_208", "knn", class_metric, relative=True, aa=True, n_classes=8, task="multi-class", models=models)
     plot_performance(axs[2][4], BASE, "binding", algo, class_metric, task="binary", aa=True, n_classes=2, models=models, relative=True)
 
-    for t, name in enumerate(["fluorescence_classification", "fluorescence", "gb1", "meltome_atlas_species", "meltome_atlas", "stability", "deeploc2_bin", "deeploc2", "solubility", "scope_40_208_superfamily", "scope_40_208_fold", "", "scope_40_208_3ssp", "scope_40_208_8ssp", "binding"]):
-        if name == "":
-            kill_axis(axs[t % 3][t // 3])
-            continue
+    for t, name in enumerate(["fluorescence_classification", "fluorescence", "gb1", "meltome_atlas_species", "meltome_atlas", "stability", "deeploc2_bin", "deeploc2", "tsuboyama", "scope_40_208_superfamily", "scope_40_208_fold", "solubility", "scope_40_208_3ssp", "scope_40_208_8ssp", "binding"]):
         set_subplot_label(axs[t % 3][t // 3], fig, chr(ord("A") + t))
-        axs[t % 3][t // 3].set_title(DATASET_NAMES[name])
+        axs[t % 3][t // 3].set_title(DATATASK_NAMES[name])
         axs[t % 3][t // 3].set_ylabel(METRIC_TITLES[TASK_METRICS[DATASET2TASK[name]]])
         axs[t % 3][t // 3].grid()
         # if t % 3 == 2:
@@ -315,4 +161,4 @@ def plot_full_fig1_perfs(models: list[str], algo: Literal["knn", "lr"] = "knn", 
     fig.legend(handles, labels, loc="lower center", bbox_to_anchor=(0.5, 0.06), bbox_transform=fig.transFigure, ncol=(len(models) + 1) // 2)  # -0.08
 
     plt.tight_layout(rect=[0, 0.085, 1, 1])
-    plt.savefig("paper_figures/full_1_improvement_layer_p.pdf", dpi=300, bbox_inches="tight")
+    plt.savefig(f"paper_figures/proteinbert_{algo}_{class_metric}_{reg_metric}.pdf", dpi=300, bbox_inches="tight")

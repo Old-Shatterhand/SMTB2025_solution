@@ -7,20 +7,10 @@ import pandas as pd
 
 from src.viz.utils import compute_metric
 from src.viz.plot_utils import compute_performance, set_subplot_label
-from src.viz.constants import DATASET_NAMES, LAYERS, METRIC_TITLES, MODEL_MARKERS, MODEL_COLORS, DATASET2TASK, TASK_METRICS
+from src.viz.constants import DATATASK_NAMES, LAYERS, METRIC_TITLES, MODEL_MARKERS, MODEL_COLORS, DATASET2TASK, TASK_METRICS
 
 
 BASE = Path("/") / "scratch" / "SCRATCH_SAS" / "roman" / "SMTB"
-
-def finetuned_mlm_losses():
-    losses = []
-    for model in ["dl_bin", "fl", "fl_bin", "ma_old", "stab"]:
-        losses.append([])
-        for layer in range(31):
-            with open(BASE / "embeddings" / f"esm_fine_{model}" / "mlm" / f"layer_{layer}" / "predictions_knn_20.pkl", "rb") as f:
-                y_hat, y = pd.read_pickle(f)[1]
-            losses[-1].append(compute_metric(y_hat, y, "mlm", "multi-class"))
-    return losses
 
 
 def plot_fig4():
@@ -69,7 +59,7 @@ def plot_fig4():
         axs[i].plot(np.arange(0, 1 + 1e-5, 1 / 30), fine, label="fine-tuned ESM-2 150M", marker=MODEL_MARKERS["esm_fine"], color=MODEL_COLORS["esm_fine"])
         axs[i].plot(np.arange(0, 1 + 1e-5, 1 / 30), orig, label="original ESM-2 150M", marker=MODEL_MARKERS["esm_t30"], color=MODEL_COLORS["esm_t30"])
 
-        axs[i].set_title(DATASET_NAMES[dataset])
+        axs[i].set_title(DATATASK_NAMES[dataset])
         axs[i].set_xlabel("Relative layer")
         axs[i].set_ylabel(METRIC_TITLES[TASK_METRICS[task]])
     
@@ -135,7 +125,7 @@ def plot_fig4_smtb():
         axs[i].plot(np.arange(0, 1 + 1e-5, 1 / 30), fine, label="fine-tuned ESM-2 150M", marker=MODEL_MARKERS["esm_fine"], color=MODEL_COLORS["esm_fine"])
         axs[i].plot(np.arange(0, 1 + 1e-5, 1 / 30), orig, label="original ESM-2 150M", marker=MODEL_MARKERS["esm_t30"], color=MODEL_COLORS["esm_t30"])
 
-        axs[i].set_title(DATASET_NAMES[dataset])
+        axs[i].set_title(DATATASK_NAMES[dataset])
         axs[i].set_xlabel("Relative layer")
         axs[i].set_ylabel(METRIC_TITLES[TASK_METRICS[task]])
     

@@ -14,7 +14,7 @@ from scipy.stats import mannwhitneyu
 from seaborn import stripplot
 
 from src.viz.plot_utils import set_subplot_label
-from src.viz.constants import DATASET_COLORS, DATASET_NAMES, LAYERS, METRIC_TITLES
+from src.viz.constants import DATASET_COLORS, DATATASK_NAMES, LAYERS, METRIC_TITLES
 from src.viz.utils import XP, interpolate_data, minmax_normalize_list
 
 matplotlib.rc('font', **{'size': 11})

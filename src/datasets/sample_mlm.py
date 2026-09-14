@@ -5,7 +5,25 @@ import numpy as np
 import pandas as pd
 
 
-def sample_dataset(
+def mask_sequence(
+        sequence: str, 
+        mask_token: str = "<mask>", 
+        mask_prob: float = 0.15
+    ) -> tuple[str, str, list[int]]:
+    result = ""
+    old_labels = ""
+    positions = []
+    for i, token in enumerate(sequence):
+        if np.random.rand() < mask_prob:
+            result += mask_token
+            old_labels += token
+            positions.append(i)
+        else:
+            result += token
+    return result, old_labels, positions
+
+
+def sample_mlm(
         sequences: pd.Series = pd.Series(dtype=str),
         mask_token: str = "<mask>",
         mask_prob: float = 0.15,
@@ -34,20 +52,11 @@ def sample_dataset(
         seq = sequences.sample(n=1).iloc[0]
         if len(seq) > 1022:
             continue
-        result = ""
-        old_labels = ""
-        positions = []
-        for i, token in enumerate(seq):
-            if np.random.rand() < mask_prob:
-                result += mask_token
-                old_labels += token
-                positions.append(i)
-            else:
-                result += token
+        masked_seq, old_labels, positions = mask_sequence(seq, mask_token=mask_token, mask_prob=mask_prob)
         if len(old_labels) > 0:
             data.append(
                 {
-                    "sequence": result,
+                    "sequence": masked_seq,
                     "labels": old_labels,
                     "positions": positions,
                     "split": np.random.choice(["train", "val", "test"], p=[train_size, val_size, 1 - train_size - val_size]),
@@ -116,7 +125,7 @@ if __name__ == "__main__":
             val_size=args.val_size,
         )
     else:
-        sample_df = sample_dataset(
+        sample_df = sample_mlm(
             dataset[args.sequence_column],
             mask_token=args.mask_token,
             n_samples=args.n_samples,

@@ -1,4 +1,5 @@
 import os
+
 os.environ['CUPY_NVCC_GENERATE_CODE'] = 'current'
 
 import copy
@@ -17,6 +18,7 @@ import pandas as pd
 from cuml import PCA
 from datasail.sail import datasail
 from sklearn.multioutput import MultiOutputClassifier
+from sklearn.neural_network import MLPRegressor, MLPClassifier
 from cuml.neighbors import KNeighborsClassifier as kNN_class, KNeighborsRegressor as kNN_reg
 from cuml.random_projection import GaussianRandomProjection as cuGRP
 
@@ -255,6 +257,60 @@ def train_lr_head(
         pickle.dump(((train_preds, train_y, train_ids), (val_preds, val_y, val_ids), (test_preds, test_y, test_ids)), f)
 
 
+def train_mlp_head(
+        out_folder: Path, 
+        train_X: np.ndarray, 
+        train_y: np.ndarray, 
+        train_ids: list[str] | None,
+        val_X: np.ndarray, 
+        val_y: np.ndarray, 
+        val_ids: list[str] | None,
+        test_X: np.ndarray, 
+        test_y: np.ndarray,
+        test_ids: list[str] | None, 
+        task: Literal["regression", "binary", "multi-class", "multi-label"] = "binary",
+        suffix: str = "",
+        force: bool = False,
+    ) -> None:
+    """
+    Train and evaluate a Multi-Layer Perceptron (MLP) classifier using cuML.
+
+    Args:
+        out_folder (Path): Output folder to save predictions.
+        train_X (np.ndarray): Training features.
+        train_y (np.ndarray): Training labels.
+        train_ids (list[str]): Training sample identifiers.
+        val_X (np.ndarray): Validation features.
+        val_y (np.ndarray): Validation labels.
+        val_ids (list[str]): Validation sample identifiers.
+        test_X (np.ndarray): Test features.
+        test_y (np.ndarray): Test labels.
+        test_ids (list[str]): Test sample identifiers.
+        task: Type of task: "regression", "binary", "multi-class", or "multi-label".
+        suffix (str): Suffix for output files.
+        force (bool): Whether to force retraining even if predictions exist.
+    """
+    if (r_file := (out_folder / f"predictions_mlp{suffix}.pkl")).exists() and not force:
+        print("MLP predictions already exist.")
+        return
+    
+    cls = MLPRegressor if task == "regression" else MLPClassifier
+    model = cls(hidden_layer_sizes=(256,), max_iter=500, random_state=42).fit(train_X, train_y)
+
+    print("Evaluating MLP model")
+    if task == "regression":
+        train_preds = model.predict(train_X)
+        val_preds = model.predict(val_X)
+        test_preds = model.predict(test_X)
+    else:
+        train_preds = model.predict_proba(train_X)
+        val_preds = model.predict_proba(val_X)
+        test_preds = model.predict_proba(test_X)
+
+    with open(r_file, "wb") as f:
+        pickle.dump(((train_preds, train_y, train_ids), (val_preds, val_y, val_ids), (test_preds, test_y, test_ids)), f)
+
+
 def prepare_dataset(
         dataset_name: str, 
         data_path: Path, 
@@ -333,20 +389,6 @@ def prepare_dataset(
     return df, labels, val_name, model_suffix, space_suffix
 
 
-def reduce_dims(train_X, val_X, test_X, calcs):
-    reducer = cuGRP(
-        n_components=250,
-        output_type="numpy",
-        random_state=42,
-        verbose=True,
-    ).fit(train_X)
-    train_X = reducer.transform(train_X)
-    if {'knn', 'id', 'no', 'lr'}.intersection(calcs):
-        val_X = reducer.transform(val_X)
-        test_X = reducer.transform(test_X)
-    return train_X, val_X, test_X
-
-
 def main(args):
     start = time()
     print(f"[{datetime.now()}] Starting rolling model computation...")
@@ -371,13 +413,9 @@ def main(args):
     # Load the first layer embeddings
     print(f"[{time() - start:.2f}s] Loading layer {args.start_layer} embeddings...")
     curr_train_X, curr_train_y, curr_train_ids = build_dataloader(df[df["split"] == "train"], args.embed_base / f"layer_{args.start_layer}", labels)
-    if {'knn', 'id', 'no', 'lr'}.intersection(calcs):
+    if {'lr', 'knn', 'mlp', 'id', 'no'}.intersection(calcs):
         curr_val_X, curr_val_y, curr_val_ids = build_dataloader(df[df["split"] == val_name], args.embed_base / f"layer_{args.start_layer}", labels)
         curr_test_X, curr_test_y, curr_test_ids = build_dataloader(df[df["split"] == "test"], args.embed_base / f"layer_{args.start_layer}", labels)
-
-    # Reduce dimensions
-    if "lysosomes" in dataset:
-        curr_train_X, curr_val_X, curr_test_X = reduce_dims(curr_train_X, curr_val_X, curr_test_X, calcs)
 
     if {'knn', 'id', 'no'}.intersection(calcs):
         print(f"[{time() - start:.2f}s] Fitting kNN on layer {args.start_layer} ...")
@@ -401,6 +439,24 @@ def main(args):
     if 'lr' in calcs:
         print(f"[{time() - start:.2f}s] Training LR on layer {args.start_layer} ...")
         train_lr_head(
+            out_folder=base_result_folder / f"layer_{args.start_layer}", 
+            train_X=curr_train_X, 
+            train_y=curr_train_y, 
+            train_ids=curr_train_ids,
+            val_X=curr_val_X, 
+            val_y=curr_val_y, 
+            val_ids=curr_val_ids,
+            test_X=curr_test_X, 
+            test_y=curr_test_y, 
+            test_ids=curr_test_ids,
+            task=args.task, 
+            suffix=model_suffix, 
+            force=args.force
+        )
+
+    if 'mlp' in calcs:
+        print(f"[{time() - start:.2f}s] Training MLP on layer {args.start_layer} ...")
+        train_mlp_head(
             out_folder=base_result_folder / f"layer_{args.start_layer}", 
             train_X=curr_train_X, 
             train_y=curr_train_y, 
@@ -443,14 +499,10 @@ def main(args):
         # Load the next layer embeddings
         print(f"[{time() - start:.2f}s] Loading layer {layer + 1} embeddings...")
         next_train_X, next_train_y, next_train_ids = build_dataloader(df[df["split"] == "train"], args.embed_base / f"layer_{layer + 1}", labels)
-        if {'knn', 'id', 'no', 'lr'}.intersection(calcs):
+        if {'knn', 'id', 'no', 'lr', 'mlp'}.intersection(calcs):
             next_val_X, next_val_y, next_val_ids = build_dataloader(df[df["split"] == val_name], args.embed_base / f"layer_{layer + 1}", labels)
             next_test_X, next_test_y, next_test_ids = build_dataloader(df[df["split"] == "test"], args.embed_base / f"layer_{layer + 1}", labels)
 
-        # Reduce dimensions
-        if "lysosomes" in dataset:
-            next_train_X, next_val_X, next_test_X = reduce_dims(next_train_X, next_val_X, next_test_X, calcs)
-        
         if {'knn', 'id', 'no'}.intersection(calcs):
             print(f"[{time() - start:.2f}s] Fitting kNN on layer {layer + 1} ...")
             next_distances, next_dist_indices = knn(
@@ -473,6 +525,24 @@ def main(args):
         if 'lr' in calcs:
             print(f"[{time() - start:.2f}s] Training LR on layer {layer + 1} ...")
             train_lr_head(
+                out_folder=base_result_folder / f"layer_{layer + 1}", 
+                train_X=next_train_X, 
+                train_y=next_train_y, 
+                train_ids=next_train_ids,
+                val_X=next_val_X, 
+                val_y=next_val_y, 
+                val_ids=next_val_ids,
+                test_X=next_test_X, 
+                test_y=next_test_y, 
+                test_ids=next_test_ids,
+                task=args.task, 
+                suffix=model_suffix, 
+                force=args.force
+            )
+
+        if 'mlp' in calcs:
+            print(f"[{time() - start:.2f}s] Training MLP on layer {layer + 1} ...")
+            train_mlp_head(
                 out_folder=base_result_folder / f"layer_{layer + 1}", 
                 train_X=next_train_X, 
                 train_y=next_train_y, 
@@ -524,9 +594,10 @@ if __name__ == "__main__":
     parser.add_argument('--n-classes', type=int, default=None, 
                         help='Number of classes to consider. Only for amino-acid level prediction tasks.')
     parser.add_argument('--calcs', nargs='+', default=['lr', 'knn', 'id', 'no', 'pca'], 
-                        choices=['lr', 'knn', 'id', 'no', 'pca'], help='Calculations to perform. Choices are '
+                        choices=['lr', 'knn', 'mlp', 'id', 'no', 'pca'], help='Calculations to perform. Choices are '
                         '[lr]: Logistic Regression, '
                         '[knn]: k-Nearest Neighbors, '
+                        '[mlp]: Multilayer Perceptron, '
                         '[id]: Intrinsic Dimension, '
                         '[no]: Neighborhood Overlap, '
                         '[pca]: Compute eigenvectors from PCA.')
